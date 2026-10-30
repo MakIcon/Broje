@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "broje",
+  "version": "${version}",
+  "name": "Broje",
+  "description": "Soft sun shadows and ray-marched atmospheric fog for VulkanMod.",
+  "environment": "client",
+  "icon": "assets/broje/icon.png",
+  "entrypoints": {
+    "client": ["dev.broje.BrojeClient"]
+  },
+  "mixins": ["broje.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.18.6",
+    "minecraft": "26.1.2",
+    "java": ">=25",
+    "vulkanmod": ">=0.6.8 <0.7.0"
+  }
+}

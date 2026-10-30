@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "dev.broje.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": ["GameRendererMixin", "LevelRendererMixin", "WorldRendererMixin", "SkyRendererMixin", "EntityRenderDispatcherMixin", "EntityRendererMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

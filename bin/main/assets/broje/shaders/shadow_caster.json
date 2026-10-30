@@ -1,0 +1,9 @@
+{
+  "UBOs": [
+    {"binding":0,"type":"vertex","fields":[{"name":"ShadowMatrix","type":"matrix4x4","count":16}]},
+    {"binding":1,"type":"all","fields":[{"name":"ShadowAlpha","type":"float","count":4},{"name":"BrojeTintBlend","type":"float","count":4}]},
+    {"binding":2,"type":"vertex","size":4096}
+  ],
+  "samplers":[{"name":"Sampler0"}],
+  "PushConstants":[{"name":"ModelOffset","type":"float","count":3}]
+}

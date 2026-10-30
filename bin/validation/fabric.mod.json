@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "broje_fog_check",
+  "version": "1.0.0",
+  "name": "Broje development fog check",
+  "environment": "client",
+  "mixins": ["broje-fog-check.mixins.json"],
+  "depends": {"broje": "*"}
+}

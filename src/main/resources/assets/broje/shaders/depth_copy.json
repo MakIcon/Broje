@@ -1,0 +1,8 @@
+{
+  "UBOs": [{
+    "binding": 0,
+    "type": "fragment",
+    "fields": [{ "name": "BrojeCamera", "type": "float", "count": 4 }]
+  }],
+  "samplers": [{ "name": "Sampler0" }]
+}

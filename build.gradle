@@ -1,0 +1,178 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = "${project.mod_version}+mc${project.minecraft_version}"
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    maven {
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
+}
+
+sourceSets {
+    validation {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    }
+}
+
+configurations {
+    validationImplementation.extendsFrom implementation
+    validationRuntimeOnly.extendsFrom runtimeOnly
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "maven.modrinth:vulkanmod:${project.vulkanmod_version}"
+    compileOnly 'org.lwjgl:lwjgl-vulkan:3.4.1'
+
+    validationImplementation 'org.lwjgl:lwjgl-shaderc:3.4.1'
+    def os = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+    def arm = System.getProperty('os.arch').contains('aarch64')
+    def natives = os.contains('win') ? 'natives-windows' : os.contains('mac') ? "natives-macos${arm ? '-arm64' : ''}" : "natives-linux${arm ? '-arm64' : ''}"
+    validationRuntimeOnly "org.lwjgl:lwjgl-shaderc:3.4.1:${natives}"
+    validationRuntimeOnly "org.lwjgl:lwjgl:3.4.1:${natives}"
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') {
+        expand(version: project.version)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+    withSourcesJar()
+}
+
+tasks.withType(Jar).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+
+tasks.register('validateFogShaders', JavaExec) {
+    group = 'verification'
+    description = 'Compile fog and sun shadow GLSL to Vulkan SPIR-V and verify config migration and limits.'
+    dependsOn validationClasses
+    classpath = sourceSets.validation.runtimeClasspath
+    mainClass = 'dev.broje.FogValidation'
+    args layout.projectDirectory.dir('src/main/resources/assets/broje/shaders').asFile.absolutePath
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
+}
+
+check.dependsOn validateFogShaders
+
+tasks.register('fogCheckMod', Jar) {
+    dependsOn validationClasses
+    from sourceSets.validation.output
+    archiveFileName = 'broje-fog-check.jar'
+    destinationDirectory = layout.buildDirectory.dir('fog-check')
+}
+
+tasks.register('prepareFogCheck') {
+    doLast {
+        copy {
+            from 'run/saves/Новый мир'
+            into 'run-fog-check/saves/FogCheck'
+            exclude 'session.lock'
+        }
+        file('run-fog-check/options.txt').text = 'lang:en_us\nrenderDistance:10\nguiScale:2\nmaxFps:60\npauseOnLostFocus:false\n'
+    }
+}
+
+loom {
+    runs {
+        fogCheck {
+            client()
+            name 'Broje fog integration check'
+            runDir 'run-fog-check'
+            if (project.hasProperty('atmosphereCheck')) vmArg '-Dbroje.atmosphereCheck=true'
+            vmArg "-Dfabric.addMods=${layout.buildDirectory.file('fog-check/broje-fog-check.jar').get().asFile.absolutePath}"
+            programArgs '--quickPlaySingleplayer', 'FogCheck', '--width', '960', '--height', '600'
+        }
+    }
+}
+
+tasks.named('runFogCheck') {
+    dependsOn fogCheckMod, prepareFogCheck
+}
+
+tasks.register('verifyFogCaptures', JavaExec) {
+    group = 'verification'
+    description = 'Verify visible fog, real depth, full coverage, wall occlusion and underwater behavior in Minecraft.'
+    dependsOn runFogCheck
+    classpath = sourceSets.validation.runtimeClasspath
+    mainClass = 'dev.broje.check.FogCaptureValidation'
+    args layout.projectDirectory.dir('run-fog-check/screenshots').asFile.absolutePath
+}
+
+tasks.register('verifyAtmosphereCaptures', JavaExec) {
+    group = 'verification'
+    description = 'Verify far clouds and horizon at default settings, in daylight and sunset. Use -PatmosphereCheck.'
+    dependsOn runFogCheck
+    doFirst {
+        if (!project.hasProperty('atmosphereCheck')) throw new GradleException('Use verifyAtmosphereCaptures -PatmosphereCheck')
+    }
+    classpath = sourceSets.validation.runtimeClasspath
+    mainClass = 'dev.broje.check.AtmosphereCaptureValidation'
+    args layout.projectDirectory.dir('run-fog-check/screenshots').asFile.absolutePath
+}
+
+tasks.register('prepareShadowCheck') {
+    doLast {
+        copy { from 'run/saves/Новый мир'; into 'run-shadow-check/saves/ShadowCheck'; exclude 'session.lock' }
+        file('run-shadow-check/options.txt').text = 'lang:en_us\nrenderDistance:10\nguiScale:2\nmaxFps:60\npauseOnLostFocus:false\n'
+    }
+}
+
+loom.runs {
+    shadowCheck {
+        client()
+        name 'Broje sun shadow integration check'
+        runDir 'run-shadow-check'
+        vmArg "-Dfabric.addMods=${layout.buildDirectory.file('fog-check/broje-fog-check.jar').get().asFile.absolutePath}"
+        vmArg '-Dbroje.shadowCheck=true'
+        if (project.hasProperty('featureCheck')) vmArg '-Dbroje.featureCheck=true'
+        if (project.hasProperty('grassOnly')) vmArg '-Dbroje.grassOnly=true'
+        if (project.hasProperty('giOnly')) vmArg '-Dbroje.giOnly=true'
+        if (project.hasProperty('glassOnly')) vmArg '-Dbroje.glassOnly=true'
+        if (project.hasProperty('filterOnly')) vmArg '-Dbroje.filterOnly=true'
+        if (project.hasProperty('fogGlassOnly')) vmArg '-Dbroje.fogGlassOnly=true'
+        programArgs '--quickPlaySingleplayer','ShadowCheck','--width','1100','--height','720'
+    }
+}
+
+tasks.named('runShadowCheck') { dependsOn fogCheckMod,prepareShadowCheck }
+
+tasks.register('verifyFeatureCaptures', JavaExec) {
+    group = 'verification'
+    description = 'Verify entity silhouettes, frozen shadow stability, reset button and bright glass blending. Use -PfeatureCheck.'
+    dependsOn runShadowCheck
+    classpath = sourceSets.validation.runtimeClasspath
+    mainClass = 'dev.broje.check.FeatureCaptureValidation'
+    args layout.projectDirectory.dir('run-shadow-check/screenshots').asFile.absolutePath
+}
+
+tasks.register('verifyShadowCaptures', JavaExec) {
+    group = 'verification'
+    description = 'Verify real sun shadows, soft edges, contact, off-screen casters and night behavior in Minecraft.'
+    dependsOn runShadowCheck
+    classpath = sourceSets.validation.runtimeClasspath
+    mainClass = 'dev.broje.check.ShadowCaptureValidation'
+    args layout.projectDirectory.dir('run-shadow-check/screenshots').asFile.absolutePath
+}
