@@ -18,12 +18,26 @@ layout(std140,binding=3) uniform WaterUniforms {
     vec4 WaterReflection;   // mirror enabled, reflection strength, shaft strength, shaft steps
     vec4 WaterPerformance;  // SSR range, colour filter taps, precise tracing, probe trace steps
     vec4 WaterProbe;        // capture centre relative x/z, water-plane Y, radius
+    vec4 WaterCloudSky;     // cloud sky map ready, unused
 };
 layout(binding=6) uniform sampler2D WaterColor;
 layout(binding=7) uniform sampler2D WaterDepth;
 layout(binding=8) uniform sampler2D WaterSunDepth;
 layout(binding=9) uniform sampler2D WaterMirror;
 layout(binding=10) uniform sampler2D WaterOpaqueDepth;
+layout(binding=11) uniform sampler2D WaterClouds;
+
+// Clouds in a direction of the upper hemisphere, from the cloud renderer's sky map
+// (stereographic disk, as clouds.fsh CLOUDS_SKY writes it): premultiplied display
+// color and the transmittance of the sky behind them. It is last frame's sky: the
+// clouds are composited after the water, so the on-screen sky has none yet.
+vec4 cloudReflection(vec3 ray) {
+    if(WaterCloudSky.x<0.5)return vec4(0,0,0,1);
+    vec3 d=normalize(vec3(ray.x,max(ray.y,0.0),ray.z));
+    vec2 uv=d.xz/(1.0+d.y)*0.5+0.5;
+    vec2 texel=0.5/vec2(textureSize(WaterClouds,0));
+    return texture(WaterClouds,clamp(uv,texel,1.0-texel));
+}
 
 bool inSprite(vec2 uv,vec4 bounds) {
     return all(greaterThanEqual(uv,bounds.xy))&&all(lessThanEqual(uv,bounds.zw));

@@ -10,12 +10,12 @@ import net.minecraft.client.Screenshot;
 
 /** Uncapped 1920x1080 frame and cloud-pass GPU times per cloud setting, in the isolated fog world. */
 public final class CloudPerformanceCheck {
-    // clouds on, resolution %, steps
-    private static final int[][] MODES = {{0, 50, 32}, {1, 50, 32}, {1, 25, 24}, {1, 25, 32}, {1, 100, 32}, {1, 50, 64}, {0, 50, 32}};
+    // clouds on, quality (0 Low .. 3 Ultra)
+    private static final int[][] MODES = {{0, 1}, {1, 0}, {1, 1}, {1, 2}, {1, 3}, {0, 1}};
     private static int[][] modes = MODES;
     private static final long[] samples = new long[30000];
     private static final double[] gpuSamples = new double[30000];
-    private static final List<String> results = new ArrayList<>(List.of("clouds,resolution,steps,frames,mean_ms,median_ms,p95_ms,cloud_gpu_mean_ms,cloud_gpu_median_ms"));
+    private static final List<String> results = new ArrayList<>(List.of("clouds,quality,frames,mean_ms,median_ms,p95_ms,cloud_gpu_mean_ms,cloud_gpu_median_ms"));
     private static long start, phaseStart, previous;
     private static int phase = -1, count, gpuCount;
     private static double x, z;
@@ -29,8 +29,8 @@ public final class CloudPerformanceCheck {
             FogGpuTimer.sink = CloudPerformanceCheck::recordGpu;
             x = mc.player.getX(); z = mc.player.getZ();
             if (Boolean.getBoolean("broje.cloudUserConfig")) {
-                int resolution = BrojeClient.CONFIG.getCloudResolution(), quality = BrojeClient.CONFIG.getCloudQuality();
-                modes = new int[][] {{0, resolution, quality}, {1, resolution, quality}, {0, resolution, quality}};
+                int quality = BrojeClient.CONFIG.getCloudQuality();
+                modes = new int[][] {{0, quality}, {1, quality}, {0, quality}};
             } else BrojeClient.CONFIG.resetToDefaults();
             BrojeClient.CONFIG.setEnabled(true);
             mc.options.hideGui = true;
@@ -53,8 +53,8 @@ public final class CloudPerformanceCheck {
         double[] gpuSorted = Arrays.copyOf(gpuSamples, gpuCount);
         Arrays.sort(gpuSorted);
         int[] mode = modes[phase];
-        String row = String.format(java.util.Locale.ROOT, "%s,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f", mode[0] == 1 ? "on" : "off",
-                mode[1], mode[2], count, Arrays.stream(sorted).average().orElse(0) / 1e6, sorted[count / 2] / 1e6,
+        String row = String.format(java.util.Locale.ROOT, "%s,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f", mode[0] == 1 ? "on" : "off",
+                mode[1], count, Arrays.stream(sorted).average().orElse(0) / 1e6, sorted[count / 2] / 1e6,
                 sorted[(int) (count * 0.95)] / 1e6, Arrays.stream(gpuSorted).average().orElse(0),
                 gpuCount > 0 ? gpuSorted[gpuCount / 2] : 0);
         results.add(row);
@@ -73,8 +73,7 @@ public final class CloudPerformanceCheck {
 
     private static void apply(int[] mode) {
         BrojeClient.CONFIG.setCloudsEnabled(mode[0] == 1);
-        BrojeClient.CONFIG.setCloudResolution(mode[1]);
-        BrojeClient.CONFIG.setCloudQuality(mode[2]);
+        BrojeClient.CONFIG.setCloudQuality(mode[1]);
     }
 
     public static void recordGpu(double milliseconds) {

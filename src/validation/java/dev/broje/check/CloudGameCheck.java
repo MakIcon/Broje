@@ -43,8 +43,8 @@ public final class CloudGameCheck {
         if (start == 0) {
             start = now;
             x = mc.player.getX(); z = mc.player.getZ();
-            BrojeClient.CONFIG.resetToDefaults(); BrojeClient.CONFIG.setEnabled(true); BrojeClient.CONFIG.setCloudFluffiness(Integer.getInteger("broje.cloudFluff", 80));
-            BrojeClient.CONFIG.setCloudStyle(Integer.getInteger("broje.cloudStyle", 2));
+            BrojeClient.CONFIG.resetToDefaults(); BrojeClient.CONFIG.setEnabled(true);
+            BrojeClient.CONFIG.setCloudSize(Integer.getInteger("broje.cloudSize", 200));
             BrojeClient.CONFIG.setCloudCoverage(Integer.getInteger("broje.cloudCover", 45));
             commands("gamemode spectator @a", "gamerule minecraft:advance_time false", "gamerule minecraft:advance_weather false");
             mc.options.bobView().set(false);
@@ -59,7 +59,6 @@ public final class CloudGameCheck {
                 // A reproducible weather peak with tall cumulus, instead of the
                 // clear sky around the world's spawn. Tests must enter real cloud.
                 BrojeClient.CONFIG.setCloudWind(0);
-                BrojeClient.CONFIG.setCloudEvolution(0);
             }
             mc.options.keyUp.setDown(false);
             commands("time set " + view[3], (Boolean) view[4] ? "weather rain" : "weather clear");

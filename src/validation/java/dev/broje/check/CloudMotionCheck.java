@@ -15,7 +15,6 @@ public final class CloudMotionCheck {
         if (start == 0) {
             start = System.currentTimeMillis();
             BrojeClient.CONFIG.setCloudWind(0);
-            BrojeClient.CONFIG.setCloudEvolution(0);
             mc.options.bobView().set(false);
             mc.options.hideGui = true;
             var server = mc.getSingleplayerServer();

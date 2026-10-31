@@ -74,7 +74,7 @@ public final class WaterRenderer {
     private WaterRenderer() {
         for (String name : new String[]{"WaterVP", "WaterInverseVP", "BrojeShadowMatrix"}) uniforms.put(name,new MappedBuffer(64));
         for (String name : new String[]{"WaterCamera","WaterOptics","WaterEffects","WaterSun","WaterSky","WaterAmbient",
-                "WaterStill","WaterFlow","WaterOverlay","WaterShadow","WaterMedium","WaterScreen","WaterReflection","WaterPerformance","WaterProbe"}) uniforms.put(name,new MappedBuffer(16));
+                "WaterStill","WaterFlow","WaterOverlay","WaterShadow","WaterMedium","WaterScreen","WaterReflection","WaterPerformance","WaterProbe","WaterCloudSky"}) uniforms.put(name,new MappedBuffer(16));
         int vertex=VK10.VK_SHADER_STAGE_VERTEX_BIT, fragment=VK10.VK_SHADER_STAGE_FRAGMENT_BIT;
         PipelineConfig.Builder config=PipelineConfig.builder()
                 .addUB(PipelineConfig.UB.builder(0,vertex).addUniform("mat4","MVP").build())
@@ -108,7 +108,8 @@ public final class WaterRenderer {
         config.addUB(ub.build()).addImageDescriptor(post?1:6,"sampler2D","WaterColor",11)
                 .addImageDescriptor(post?2:7,"sampler2D","WaterDepth",11).addImageDescriptor(post?3:8,"sampler2D","WaterSunDepth",11)
                 .addImageDescriptor(post?4:9,"sampler2D","WaterMirror",11)
-                .addImageDescriptor(post?5:10,"sampler2D","WaterOpaqueDepth",11);
+                .addImageDescriptor(post?5:10,"sampler2D","WaterOpaqueDepth",11)
+                .addImageDescriptor(post?6:11,"sampler2D","WaterClouds",11);
     }
 
     private GraphicsPipeline create(String name,com.mojang.blaze3d.vertex.VertexFormat format,PipelineConfig config,String vert,String frag) {
@@ -127,6 +128,9 @@ public final class WaterRenderer {
             },true));
             if(sampler.equals("WaterMirror"))builder.getImageDescriptors().set(i,new Image(binding,sampler,
                     ()->mirrorTarget!=null&&!mirrorRendering?mirrorTarget.getColorAttachment():VTextureSelector.getWhiteTexture(),false));
+            if(sampler.equals("WaterClouds"))builder.getImageDescriptors().set(i,new Image(binding,sampler,()->{
+                VulkanImage sky=CloudRenderer.skyMap();return sky!=null?sky:VTextureSelector.getWhiteTexture();
+            },false));
         }
         builder.setShaderSrc(SPIRVUtils.ShaderKind.VERTEX_SHADER,shader(vert));
         builder.setShaderSrc(SPIRVUtils.ShaderKind.FRAGMENT_SHADER,shader(frag));
@@ -143,7 +147,8 @@ public final class WaterRenderer {
                 .replace("binding=7) uniform sampler2D WaterDepth","binding=2) uniform sampler2D WaterDepth")
                 .replace("binding=8) uniform sampler2D WaterSunDepth","binding=3) uniform sampler2D WaterSunDepth")
                 .replace("binding=9) uniform sampler2D WaterMirror","binding=4) uniform sampler2D WaterMirror")
-                .replace("binding=10) uniform sampler2D WaterOpaqueDepth","binding=5) uniform sampler2D WaterOpaqueDepth");
+                .replace("binding=10) uniform sampler2D WaterOpaqueDepth","binding=5) uniform sampler2D WaterOpaqueDepth")
+                .replace("binding=11) uniform sampler2D WaterClouds","binding=6) uniform sampler2D WaterClouds");
         return source;
     }
     private static String resource(String name) {
@@ -388,6 +393,7 @@ public final class WaterRenderer {
         vector("WaterShadow",ShadowRenderer.mapReady()?1:0,flags!=null?flags.getFloat(8):0,config.getShadowDistance(),localSky);
         Framebuffer main=Renderer.getInstance().getMainPass().getMainFramebuffer();
         vector("WaterScreen",main.getWidth(),main.getHeight(),RenderSystem.getDevice().isZZeroToOne()?1:0,Integer.getInteger("broje.waterDebug",0));
+        vector("WaterCloudSky",CloudRenderer.skyMap()!=null?1:0,0,0,0);
     }
     private void sprite(TextureAtlas atlas,String path,String uniform) {
         var sprite=atlas.getSprite(Identifier.withDefaultNamespace("block/"+path));

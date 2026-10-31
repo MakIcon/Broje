@@ -39,18 +39,23 @@ import org.lwjgl.vulkan.VK10;
 import org.lwjgl.vulkan.VkCommandBuffer;
 
 /**
- * Volumetric clouds in place of the flat vanilla layer: one ray march through three
- * overlapping world-space banks, filtering within the current frame, then a
- * depth-aware composite over the sky and terrain.
+ * Volumetric clouds in place of the flat vanilla layer: Quasar's cloud volume (its
+ * natural cloud map, height profile, lighting and ray march) marched at reduced
+ * resolution, filtered within the current frame, then composited over the sky and
+ * terrain with depth-aware upsampling.
  */
 public final class CloudRenderer {
-    /** Camera, wind and every noise lattice share this period: 2^12 * 15 blocks. */
+    /** The cloud map origin (camera plus wind) wraps here to stay precise as a float. */
     private static final int PERIOD = 61440;
     /** Cloud shadows have broad penumbrae: eight-block texels are sufficient. */
     private static final int SHADOW_SIZE = 192;
     private static final float SHADOW_RANGE = 1536;
+    /** The sky hemisphere for water reflections: waves blur it, so it can be small. */
+    private static final int SKY_SIZE = 192;
     private static CloudRenderer instance;
     private static boolean failed;
+    // Water draws before the clouds as well, so it reflects the previous frame's sky.
+    private static boolean skyReady;
     // The last shadow map: where it was centred, its plane and its light. Terrain draws
     // before the clouds, so it reads the map of the previous frame through these.
     private static boolean shadowReady;
@@ -62,13 +67,12 @@ public final class CloudRenderer {
     private final Map<VulkanImage, Framebuffer> colorTargets = new IdentityHashMap<>();
     private final Matrix4f inverseProjection = new Matrix4f();
     private final Matrix4f inverseView = new Matrix4f();
-    private final GraphicsPipeline marchPipeline, filterPipeline, resolvePipeline, shadowPipeline, weatherPipeline;
+    private final GraphicsPipeline marchPipeline, filterPipeline, resolvePipeline, shadowPipeline, skyPipeline;
     private final FogRenderer.DepthSampler depthSampler = new FogRenderer.DepthSampler();
     private final VulkanImage noise = CloudNoise.load();
     private final Vector3f currentShadowLight = new Vector3f();
     private float currentShadowPlane;
-    private Framebuffer reducedTarget, shadowTarget, weatherTarget;
-    private boolean weatherReady;
+    private Framebuffer reducedTarget, shadowTarget, skyTarget;
     private Framebuffer filteredTarget;
     private int frameIndex;
     // A pass never samples the image it writes.
@@ -79,17 +83,15 @@ public final class CloudRenderer {
     private CloudRenderer() {
         uniforms.put("BrojeInverseProjection", new MappedBuffer(64));
         uniforms.put("BrojeInverseView", new MappedBuffer(64));
-        uniforms.put("BrojePreviousViewProjection", new MappedBuffer(64));
-        new Matrix4f().get(uniforms.get("BrojePreviousViewProjection").buffer);
-        for (String name : new String[] {"BrojeCamera", "BrojeCloudShape", "BrojeCloudWind", "BrojeCloudMarch", "BrojeCloudLight",
-                "BrojeCloudSun", "BrojeCloudAmbient", "BrojeCloudHorizon", "BrojeCloudTarget", "BrojeCloudLayers", "BrojeCloudFrame", "BrojeCloudExtra", "BrojeCloudMotion"}) {
+        for (String name : new String[] {"BrojeCamera", "BrojeCloudShape", "BrojeCloudTime", "BrojeCloudMarch", "BrojeCloudSun",
+                "BrojeCloudSky", "BrojeCloudHorizon", "BrojeCloudTarget", "BrojeCloudShadowLight", "BrojeCloudShadowArea", "BrojeCloudLook"}) {
             uniforms.put(name, new MappedBuffer(16));
         }
         marchPipeline = createPipeline("march", "");
         filterPipeline = createPipeline("filter", "#define CLOUDS_FILTER\n");
         resolvePipeline = createPipeline("resolve", "#define CLOUDS_RESOLVE\n");
         shadowPipeline = createPipeline("shadow", "#define CLOUDS_SHADOW\n");
-        weatherPipeline = createPipeline("weather", "#define CLOUDS_WEATHER\n");
+        skyPipeline = createPipeline("sky", "#define CLOUDS_SKY\n");
         Renderer.getInstance().addOnResizeCallback(this::destroyTargets);
         BrojeClient.LOGGER.info("Broje cloud pipelines compiled: reduced ray march, current-frame filter and depth-aware composite.");
     }
@@ -111,17 +113,7 @@ public final class CloudRenderer {
             }
         });
         builder.getImageDescriptors().set(3, new ImageDescriptor(4, "sampler2D", "Sampler3", 11, VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-            @Override public VulkanImage getImage() {
-                return VTextureSelector.getWhiteTexture();
-            }
-        });
-        builder.getImageDescriptors().set(4, new ImageDescriptor(5, "sampler2D", "Sampler4", 11, VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
             @Override public VulkanImage getImage() { return noise; }
-        });
-        builder.getImageDescriptors().set(5, new ImageDescriptor(6, "sampler2D", "Sampler5", 11, VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-            @Override public VulkanImage getImage() {
-                return weatherReady && weatherTarget != null ? weatherTarget.getColorAttachment() : VTextureSelector.getWhiteTexture();
-            }
         });
         builder.setShaderSrc(SPIRVUtils.ShaderKind.VERTEX_SHADER, FogRenderer.resource("fog.vsh"));
         String fragment = FogRenderer.resource("clouds.fsh");
@@ -150,6 +142,7 @@ public final class CloudRenderer {
     public static void render(GameRenderState state, DeltaTracker deltaTracker) {
         if (!wanted(state)) {
             shadowReady = false;
+            skyReady = false;
             return;
         }
         try {
@@ -158,6 +151,7 @@ public final class CloudRenderer {
         } catch (RuntimeException exception) {
             failed = true;
             shadowReady = false;
+            skyReady = false;
             BrojeClient.LOGGER.error("Broje clouds failed. Returning to the vanilla clouds.", exception);
         }
     }
@@ -167,7 +161,8 @@ public final class CloudRenderer {
         Framebuffer main = renderer.getMainPass().getMainFramebuffer();
         if (main == null || main.getDepthAttachment() == null || main.getWidth() <= 0 || main.getHeight() <= 0) return;
 
-        ensureReducedTarget(main, config.getCloudResolution());
+        // Only Ultra marches at full resolution; the others are capped for 4K.
+        ensureReducedTarget(main, config.getCloudQuality() >= 3 ? 100 : 50);
         updateUniforms(state, deltaTracker, config);
         VulkanImage depth = main.getDepthAttachment();
         Framebuffer colorOnly = colorTargets.computeIfAbsent(main.getColorAttachment(), color -> Framebuffer.builder(color, null).build());
@@ -188,10 +183,6 @@ public final class CloudRenderer {
             try {
                 VTextureSelector.bindTexture(0, depth);
                 sampledClouds = null;
-                weatherReady = false;
-                drawPass(weatherPipeline, weatherTarget, reducedPass, false, stack);
-                readable(stack, weatherTarget);
-                weatherReady = true;
                 drawPass(marchPipeline, reducedTarget, reducedPass, false, stack);
                 readable(stack, reducedTarget);
                 // No previous-frame color: translucent cloud volumes do not have
@@ -212,6 +203,14 @@ public final class CloudRenderer {
                     shadowPlane = currentShadowPlane;
                     shadowLight.set(currentShadowLight);
                     shadowReady = true;
+                } else if (!skyReady || frameIndex % 2 == 1) {
+                    // Alternates with the shadow map. A short march is enough for a
+                    // reflection that waves distort anyway.
+                    sampledClouds = null;
+                    vector("BrojeCloudMarch", 64, 32, 2, 0);
+                    drawPass(skyPipeline, skyTarget, reducedPass, false, stack);
+                    readable(stack, skyTarget);
+                    skyReady = true;
                 }
             } finally {
                 sampledClouds = null;
@@ -226,8 +225,8 @@ public final class CloudRenderer {
         }
         if (firstFrame) {
             firstFrame = false;
-            BrojeClient.LOGGER.info("Broje clouds rendering at {}x{} (march {}x{}), layer Y={}..{}.", main.getWidth(), main.getHeight(),
-                    reducedTarget.getWidth(), reducedTarget.getHeight(), config.getCloudHeight(), config.getCloudHeight() + config.getCloudThickness());
+            BrojeClient.LOGGER.info("Broje clouds rendering at {}x{} (march {}x{}), base Y={}, thickness {}.", main.getWidth(), main.getHeight(),
+                    reducedTarget.getWidth(), reducedTarget.getHeight(), config.getCloudHeight(), thickness(config));
         }
     }
 
@@ -254,10 +253,9 @@ public final class CloudRenderer {
         filteredTarget = Framebuffer.builder(width, height, 1, false).setFormat(VK10.VK_FORMAT_R16G16B16A16_SFLOAT).build();
         if (shadowTarget == null)
             shadowTarget = Framebuffer.builder(SHADOW_SIZE, SHADOW_SIZE, 1, false).setFormat(VK10.VK_FORMAT_R16G16B16A16_SFLOAT).build();
-        if (weatherTarget == null) {
-            weatherTarget = Framebuffer.builder(192 * 3, 192, 1, false).setFormat(VK10.VK_FORMAT_R16G16B16A16_SFLOAT).build();
-            weatherTarget.getColorAttachment().setSampler(net.vulkanmod.vulkan.texture.SamplerManager.getSampler(true, true, 0));
-        }
+        if (skyTarget == null)
+            skyTarget = Framebuffer.builder(SKY_SIZE, SKY_SIZE, 1, false).setFormat(VK10.VK_FORMAT_R16G16B16A16_SFLOAT)
+                    .setLinearFiltering(true).build();
         reducedTarget = Framebuffer.builder(width, height, 1, false).setFormat(VK10.VK_FORMAT_R16G16B16A16_SFLOAT).build();
         if (reducedPass == null) {
             RenderPass.Builder builder = RenderPass.builder(reducedTarget);
@@ -294,69 +292,66 @@ public final class CloudRenderer {
         }
     }
 
+    /** Big clouds are also taller: 48 blocks at 50% size, 60 at 200%, 76 at 400%. */
+    private static float thickness(BrojeConfig config) {
+        return 44 + 8 * config.getCloudSize() * 0.01f;
+    }
+
     private void updateUniforms(GameRenderState state, DeltaTracker deltaTracker, BrojeConfig config) {
         CameraRenderState camera = state.levelRenderState.cameraRenderState;
-        float weatherRange = (Math.max(config.getCloudDistance(), SHADOW_RANGE) + 2048) * 2;
-        // Moving the cache by an integral texel preserves its world-space samples.
-        double weatherTexel = weatherRange / 192.0;
-        vector("BrojeCloudExtra", config.getCloudLowerCoverage() * 0.01f, 0,
-                (float) (Math.floor(wrap(camera.pos.x, PERIOD) / weatherTexel) * weatherTexel),
-                (float) (Math.floor(wrap(camera.pos.z, PERIOD) / weatherTexel) * weatherTexel));
         inverseProjection.set(VRenderSystem.projection).invert().get(uniforms.get("BrojeInverseProjection").buffer);
         inverseView.set(camera.viewRotationMatrix).invert().get(uniforms.get("BrojeInverseView").buffer);
-        // Every cloud of every style lies above the shadow plane.
-        currentShadowPlane = config.getCloudStyle() == 0 ? config.getCloudHeight() - 1
-                : config.getCloudHeight() - config.getCloudSpread() - config.getCloudThickness() * 0.85f - 8;
-        vector("BrojeCloudFrame", 0, 0, SHADOW_RANGE, currentShadowPlane);
-        vector("BrojeCamera", wrap(camera.pos.x, PERIOD), (float) camera.pos.y, wrap(camera.pos.z, PERIOD),
-                RenderSystem.getDevice().isZZeroToOne() ? 1 : 0);
         float partialTick = deltaTracker.getGameTimeDeltaPartialTick(false);
-        float rain = Minecraft.getInstance().level.getRainLevel(partialTick);
-        vector("BrojeCloudShape", config.getCloudHeight(), config.getCloudThickness(), config.getCloudCoverage() * 0.01f,
-                0.15f * config.getCloudDensity() * 0.01f * (1 + rain * 0.5f));
-        // Up to 8 blocks per second with a slight crosswind.
-        // Promote before adding the fractional tick: long + float would lose
-        // sub-tick precision in older worlds and make wind advance in small jumps.
-        double seconds = ((double) state.levelRenderState.gameTime + partialTick) / 20.0;
-        double travelled = seconds * config.getCloudWind() * 0.08;
-        vector("BrojeCloudMotion", 0, 0, 0, weatherRange);
-        vector("BrojeCloudWind", wrap(travelled, PERIOD), wrap(travelled * 0.35, PERIOD),
-                wrap(travelled / 32.0 * 0.3, 1920), rain);
-        // The weather field also runs through time: at 50% a cloud forms or dissolves in
-        // about four minutes. The time axis wraps with that noise's 30-cell period.
-        vector("BrojeCloudLayers", config.getCloudSpread(), config.getCloudUpperCoverage() * 0.01f,
-                wrap(seconds * config.getCloudEvolution() * 0.0000833, 30), config.getCloudStyle());
-        vector("BrojeCloudMarch", config.getCloudQuality(), config.getCloudDistance(), FogRenderer.opaqueDepth() != null ? 1 : 0,
-                0); // Legacy fluffiness is intentionally ignored: no fine displaced shell.
+        Level level = Minecraft.getInstance().level;
+        float rain = level.getRainLevel(partialTick);
+        float thunder = level.getThunderLevel(partialTick);
 
-        // Sun by day, the moon (opposite it) by night; both fade out at the horizon, so
-        // the switch of direction happens while neither gives any light.
+        // Quasar's motion: wind of up to 0.1 blocks per tick at 100%, and a formation
+        // clock that cross-fades four layouts, so clouds form and dissolve as they drift.
+        // Promote before adding the fractional tick: long + float would lose sub-tick
+        // precision in older worlds and make the clouds advance in small jumps.
+        double ticks = (double) state.levelRenderState.gameTime + partialTick;
+        double speed = config.getCloudWind() * 0.02;
+        double travelled = ticks * speed * 0.05;
+        vector("BrojeCamera", wrap(camera.pos.x + travelled * 0.94, PERIOD), (float) camera.pos.y,
+                wrap(camera.pos.z + travelled * 0.342, PERIOD), RenderSystem.getDevice().isZZeroToOne() ? 1 : 0);
+        float thickness = thickness(config);
+        float coverage = 0.05f + 0.9f * Math.min(1, config.getCloudCoverage() * 0.01f + rain * 0.2f);
+        vector("BrojeCloudShape", config.getCloudHeight(), thickness, coverage, config.getCloudSize() * 0.01f);
+        vector("BrojeCloudTime", wrap(ticks * speed * 0.0009, 4), rain, thunder, FogRenderer.opaqueDepth() != null ? 1 : 0);
+        // Low, Medium, High, Ultra: Quasar's primary steps at the horizon and zenith, light steps.
+        int quality = config.getCloudQuality();
+        vector("BrojeCloudMarch", 64 + 32 * quality, 32 + 16 * quality, quality == 0 ? 2 : quality == 3 ? 4 : 3, 0);
+
+        // The shader lights by the sun and, opposite it, the moon; both fade at the horizon.
         SkyRenderState sky = state.levelRenderState.skyRenderState;
         Vector3f sun = SunDirection.at(sky.sunAngle, config.getSunPathTilt(), new Vector3f());
-        boolean day = sun.y > -0.03f;
-        Vector3f light = day ? sun : new Vector3f(sun).negate();
-        float strength = day ? smoothstep(-0.03f, 0.12f, sun.y) : smoothstep(0.03f, 0.15f, -sun.y) * 0.16f;
-        strength *= 1 - rain * 0.75f;
-        vector("BrojeCloudLight", light.x, light.y, light.z, strength);
-        // As clouds.fsh shadowLight(): a low sun would stretch shadows across the map.
-        currentShadowLight.set(light).normalize();
-        currentShadowLight.set(currentShadowLight.x, Math.max(currentShadowLight.y, 0.2f), currentShadowLight.z).normalize();
-        float warm = smoothstep(0.0f, 0.45f, sun.y);
-        if (day) vector("BrojeCloudSun", 1.0f, lerp(0.55f, 0.96f, warm), lerp(0.32f, 0.9f, warm), 0);
-        else vector("BrojeCloudSun", 0.62f, 0.72f, 1.0f, 0);
-
-        // Sky light: the vanilla cloud tint already follows daytime, night and rain;
-        // the sky color adds its blue to the shaded undersides.
-        int cloud = state.levelRenderState.cloudColor;
-        int skyColor = sky.skyColor;
-        vector("BrojeCloudAmbient", ambient(cloud >> 16, skyColor >> 16), ambient(cloud >> 8, skyColor >> 8), ambient(cloud, skyColor), 0);
+        // Night is complete once the sun is 18 degrees below the horizon.
+        float night = smoothstep(0, 0.309f, -sun.y);
+        vector("BrojeCloudSun", sun.x, sun.y, sun.z, night);
+        // Quasar's sky radiance: blue by day, paler toward sunset, grey in rain and storms.
+        float sunset = Math.min(sq((1 - Math.max(sun.y, 0)) * 1.1f), 1);
+        float daySky = 0.6f + 0.4f * (1 - sunset);
+        vector("BrojeCloudSky", skyRadiance(0.4f * daySky, rain, thunder, night), skyRadiance(0.6f * daySky, rain, thunder, night),
+                skyRadiance(daySky, rain, thunder, night), 1 - rain);
         Vector4f horizon = camera.fogData.color;
         vector("BrojeCloudHorizon", horizon.x, horizon.y, horizon.z, 0.55f);
+
+        // Every cloud body lies above the shadow plane. The shadow light never grazes:
+        // a low sun would stretch the shadows across the whole map.
+        currentShadowPlane = config.getCloudHeight() - thickness * 1.75f - 8;
+        currentShadowLight.set(sun).normalize();
+        currentShadowLight.set(currentShadowLight.x, Math.max(currentShadowLight.y, 0.2f), currentShadowLight.z).normalize();
+        vector("BrojeCloudShadowLight", currentShadowLight.x, currentShadowLight.y, currentShadowLight.z, 0);
+        vector("BrojeCloudShadowArea", 0, 0, SHADOW_RANGE, currentShadowPlane);
+        vector("BrojeCloudLook", config.getCloudDensity() * 0.01f, config.getCloudAiriness() * 0.01f, config.getCloudRelief(), 0);
     }
 
-    private static float ambient(int cloud, int sky) {
-        return ((cloud & 255) * 0.5f + (sky & 255) * 0.3f) / 255f;
+    private static float skyRadiance(float day, float rain, float thunder, float night) {
+        return lerp(lerp(day, 0.6f, rain), 0.3f, thunder) * (1 - night) + night * 0.02f;
     }
+
+    private static float sq(float value) { return value * value; }
 
     private static float smoothstep(float edge0, float edge1, float value) {
         float t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
@@ -370,6 +365,15 @@ public final class CloudRenderer {
     private void vector(String name, float x, float y, float z, float w) {
         MappedBuffer buffer = uniforms.get(name);
         buffer.putFloat(0, x); buffer.putFloat(4, y); buffer.putFloat(8, z); buffer.putFloat(12, w);
+    }
+
+    /**
+     * Clouds of the upper sky hemisphere around the camera, stereographically mapped to
+     * a disk: premultiplied display color and the transmittance of the sky behind them.
+     * Null while there is none to read.
+     */
+    public static VulkanImage skyMap() {
+        return skyReady && instance != null && instance.skyTarget != null ? instance.skyTarget.getColorAttachment() : null;
     }
 
     /** The cloud shadow map, or null while there is none to read. */
@@ -399,7 +403,7 @@ public final class CloudRenderer {
         instance.filterPipeline.cleanUp();
         instance.resolvePipeline.cleanUp();
         instance.shadowPipeline.cleanUp();
-        instance.weatherPipeline.cleanUp();
+        instance.skyPipeline.cleanUp();
         instance.noise.free();
         instance.destroyTargets();
         if (instance.cloudPass != null) instance.cloudPass.cleanUp();
@@ -416,8 +420,8 @@ public final class CloudRenderer {
         if (reducedTarget != null) { reducedTarget.cleanUp(); reducedTarget = null; }
         if (filteredTarget != null) { filteredTarget.cleanUp(); filteredTarget = null; }
         if (shadowTarget != null) { shadowTarget.cleanUp(); shadowTarget = null; }
-        if (weatherTarget != null) { weatherTarget.cleanUp(); weatherTarget = null; }
-        weatherReady = false;
+        if (skyTarget != null) { skyTarget.cleanUp(); skyTarget = null; }
+        skyReady = false;
         shadowReady = false;
     }
 }

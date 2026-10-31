@@ -20,13 +20,16 @@ vec3 skyReflection(vec3 ray) {
     vec3 horizon=mix(WaterAmbient.rgb,WaterSky.rgb,0.35);
     vec3 fallback=mix(horizon,WaterSky.rgb,up);
     vec2 uv;
-    // Use the actual rendered sky (including clouds) when its direction is on
-    // screen. The analytic dome covers directions the camera cannot see.
+    // Use the actual rendered sky when its direction is on screen. The analytic
+    // dome covers directions the camera cannot see.
     if(projectPoint(ray*1024.0,uv)&&depthAt(uv)>0.99999) {
         vec2 edge=min(uv,1-uv);
         fallback=mix(fallback,texture(WaterColor,safeUV(uv)).rgb,smoothstep(0.0,0.06,min(edge.x,edge.y)));
     }
-    return fallback;
+    // Neither has the volumetric clouds yet: they come from the cloud sky map, in
+    // every direction, also while standing on the shore looking at the water.
+    vec4 clouds=cloudReflection(ray);
+    return fallback*clouds.a+clouds.rgb;
 }
 
 // Infer a receiver plane from adjacent depth texels. Precise mode chooses
@@ -276,7 +279,12 @@ void main() {
     vec3 halfVector=view+WaterSun.xyz;
     float highlight=dot(halfVector,halfVector)>1e-6?pow(max(dot(normal,normalize(halfVector)),0.0),420.0):0;
     float direct=submergedSurface?0.0:sunlight(p+geometric*0.08)*WaterSun.w*smoothstep(0.4,0.95,skyLight);
-    vec3 color=mix(transmitted,environment,fresnel)+vec3(1.0,0.88,0.65)*highlight*direct*0.8;
+    // Fresnel splits light energy, so weigh it in linear light, not in display values:
+    // there a bright cloud reflected at 10% over a sunlit shallow floor all but vanished,
+    // and only dark deep water seen from high above showed the clouds at all.
+    vec3 color=submergedSurface||WaterScreen.w==9?mix(transmitted,environment,fresnel)
+            :pow(mix(pow(max(transmitted,0.0),vec3(2.2)),pow(max(environment,0.0),vec3(2.2)),fresnel),vec3(1.0/2.2));
+    color+=vec3(1.0,0.88,0.65)*highlight*direct*0.8;
     // Contact tint fades continuously over the first few centimetres of water.
     color+=vec3(0.04,0.065,0.07)*exp(-path*7.0)*surface*WaterSun.w;
     if(!submergedSurface)color=mix(color,FogColor.rgb,fog*FogColor.a);
@@ -286,6 +294,8 @@ void main() {
     if(WaterScreen.w==3)color=vec3(path/20.0);
     if(WaterScreen.w==4)color=mirror.a>0?mirror.rgb:vec3(1,0,1);
     if(WaterScreen.w==6)color=vec3(mirror.a);
+    if(WaterScreen.w==7)color=environment;
+    if(WaterScreen.w==8)color=vec3(fresnel);
     // Color already contains the refracted background: native SRC_ALPHA blending
     // must replace it once, rather than blending that same background twice.
     fragColor=vec4(color,1);

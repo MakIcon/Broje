@@ -30,7 +30,7 @@ public final class FogValidation {
             compile(compiler, options, "clouds.fsh (resolve)", withDefines(clouds, "#define CLOUDS_RESOLVE\n"), Shaderc.shaderc_fragment_shader);
             compile(compiler, options, "clouds.fsh (spatial filter)", withDefines(clouds, "#define CLOUDS_FILTER\n"), Shaderc.shaderc_fragment_shader);
             compile(compiler, options, "clouds.fsh (shadow)", withDefines(clouds, "#define CLOUDS_SHADOW\n"), Shaderc.shaderc_fragment_shader);
-            compile(compiler, options, "clouds.fsh (weather)", withDefines(clouds, "#define CLOUDS_WEATHER\n"), Shaderc.shaderc_fragment_shader);
+            compile(compiler, options, "clouds.fsh (water sky)", withDefines(clouds, "#define CLOUDS_SKY\n"), Shaderc.shaderc_fragment_shader);
             compile(compiler, options, shaders.resolve("sun.vsh"), Shaderc.shaderc_vertex_shader);
             compile(compiler, options, shaders.resolve("sun.fsh"), Shaderc.shaderc_fragment_shader);
             String solarBloom=Files.readString(shaders.resolve("sun_bloom_common.glsl"));
@@ -67,17 +67,20 @@ public final class FogValidation {
             check(migrated.getFogQuality() == 32 && migrated.getFogDensity() == 45, "New default values");
             check(migrated.getFogResolution() == 50, "Old configs gain reduced fog resolution");
             check(migrated.isCloudsEnabled() && migrated.getCloudCoverage() == 45 && migrated.getCloudHeight() == 192
-                    && migrated.getCloudThickness() == 160 && migrated.getCloudQuality() == 32 && migrated.getCloudResolution() == 50
-                    && migrated.getCloudFluffiness() == 80 && migrated.getCloudSpread() == 48
-                    && migrated.getCloudUpperCoverage() == 30 && migrated.getCloudLowerCoverage() == 24 && migrated.getCloudEvolution() == 50
-                    && migrated.getCloudStyle() == 2 && migrated.isCloudShadows(), "Cloud defaults in old configs");
-            migrated.setCloudQuality(40);migrated.setCloudResolution(30);migrated.setCloudHeight(9999);migrated.setCloudThickness(1);
-            migrated.setCloudLowerCoverage(-10);
-            check(migrated.getCloudLowerCoverage() == 0, "Lower clouds can be disabled");
-            migrated.setCloudLowerCoverage(120);
-            check(migrated.getCloudLowerCoverage() == 100, "Lower cloud coverage upper limit");
-            check(migrated.getCloudQuality() == 48 && migrated.getCloudResolution() == 50 && migrated.getCloudHeight() == 384
-                    && migrated.getCloudThickness() == 32, "Cloud steps, resolution and layer limits");
+                    && migrated.getCloudSize() == 200 && migrated.getCloudWind() == 15 && migrated.getCloudQuality() == 1
+                    && migrated.isCloudShadows(), "Cloud defaults in old configs");
+            Path legacy = directory.resolve("legacy-clouds.json");
+            Files.writeString(legacy, "{\"cloudQuality\":32,\"cloudWind\":90,\"cloudStyle\":0}");
+            BrojeConfig legacyClouds = BrojeConfig.load(legacy);
+            check(legacyClouds.getCloudQuality() == 1 && legacyClouds.getCloudWind() == 15, "Old cloud step counts and wind are not reinterpreted");
+            migrated.setCloudQuality(40);migrated.setCloudSize(1);migrated.setCloudHeight(9999);migrated.setCloudWind(-5);
+            check(migrated.getCloudQuality() == 3 && migrated.getCloudSize() == 50 && migrated.getCloudHeight() == 384
+                    && migrated.getCloudWind() == 0, "Cloud quality, size, height and wind limits");
+            migrated.setCloudSize(9999);
+            check(migrated.getCloudSize() == 400, "Cloud size upper limit");
+            check(migrated.getCloudDensity() == 100 && migrated.getCloudAiriness() == 70 && migrated.getCloudRelief() == 3, "Cloud look defaults");
+            migrated.setCloudDensity(0);migrated.setCloudAiriness(500);migrated.setCloudRelief(9);
+            check(migrated.getCloudDensity() == 20 && migrated.getCloudAiriness() == 100 && migrated.getCloudRelief() == 4, "Cloud look limits");
             migrated.setFogResolution(70);
             check(migrated.getFogResolution() == 75, "Intermediate fog resolution");
             migrated.setFogResolution(999);
@@ -121,7 +124,8 @@ public final class FogValidation {
             migrated.setVolumetricFog(false);
             migrated.save();
             BrojeConfig restored = BrojeConfig.load(file);
-            check(restored.getCloudLowerCoverage() == 100, "Lower cloud coverage persists");
+            check(restored.getCloudSize() == 400 && restored.getCloudQuality() == 3 && restored.getCloudWind() == 0
+                    && restored.getCloudDensity() == 20 && restored.getCloudAiriness() == 100 && restored.getCloudRelief() == 4, "Cloud settings persist");
             check(restored.getFogResolution() == 100, "Fog resolution persists");
             restored.setFogResolution(-1);
             check(restored.getFogResolution() == 50, "Fog resolution lower limit");
@@ -153,10 +157,10 @@ public final class FogValidation {
             check(reset.isWaterEnabled()&&reset.isWaterSsr()&&reset.getWaterWaves()==65&&reset.getWaterAbsorption()==100
                     &&reset.getWaterRefraction()==45&&reset.getWaterCaustics()==70&&reset.getWaterQuality()==32,"Reset water options");
             check(reset.getSunPathTilt() == 0, "Reset solar orbit");
-            reset.setCloudLowerCoverage(90);
+            reset.setCloudSize(90);
             reset.resetToDefaults();
-            check(reset.isCloudsEnabled() && reset.getCloudHeight() == 192 && reset.getCloudQuality() == 32
-                    && reset.getCloudLowerCoverage() == 24, "Reset clouds");
+            check(reset.isCloudsEnabled() && reset.getCloudHeight() == 192 && reset.getCloudQuality() == 1
+                    && reset.getCloudSize() == 200, "Reset clouds");
             check(reset.getSunBloomStrength()==100&&reset.getSunBloomRadius()==100,"Reset solar bloom");
             check(reset.getColoredBlend()==2 && reset.getColoredBrightness()==100 && reset.getColoredSaturation()==130
                     && reset.getColoredOverlap()==100,"Reset all colored controls");
@@ -172,6 +176,7 @@ public final class FogValidation {
         } finally {
             Files.deleteIfExists(directory.resolve("broje.json"));
             Files.deleteIfExists(directory.resolve("broje.json.tmp"));
+            Files.deleteIfExists(directory.resolve("legacy-clouds.json"));
             Files.deleteIfExists(directory);
         }
         System.out.println("PASS: Vulkan fog/shadow/lighting shaders, config migration, limits, save/load and malformed input.");

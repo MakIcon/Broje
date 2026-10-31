@@ -109,6 +109,7 @@ loom {
             if (project.hasProperty('atmosphereCheck')) vmArg '-Dbroje.atmosphereCheck=true'
             if (project.hasProperty('cloudCheck')) vmArg '-Dbroje.cloudCheck=true'
             if (project.hasProperty('cloudMotionCheck')) vmArg '-Dbroje.cloudMotionCheck=true'
+            if (project.hasProperty('cloudReflectionCheck')) vmArg '-Dbroje.cloudReflectionCheck=true'
             if (project.hasProperty('cloudFluff')) vmArg "-Dbroje.cloudFluff=${project.property('cloudFluff')}"
             if (project.hasProperty('cloudStyle')) vmArg "-Dbroje.cloudStyle=${project.property('cloudStyle')}"
             if (project.hasProperty('cloudCover')) vmArg "-Dbroje.cloudCover=${project.property('cloudCover')}"

@@ -142,30 +142,22 @@ public final class BrojeSettings {
         }), new OptionPage(Component.translatable("broje.page.clouds").getString(), new OptionBlock[] {
                 new OptionBlock("", new Option<?>[] {
                         toggle("clouds", config::setCloudsEnabled, config::isCloudsEnabled),
-                        new CyclingOption<>(Component.translatable("broje.options.cloud_style"), new Integer[] {0,1,2},
-                                config::setCloudStyle, config::getCloudStyle)
-                                .setTranslator(value -> Component.translatable("broje.cloud_style." + value))
-                                .setTooltip(value -> Component.translatable("broje.options.cloud_style.tooltip")),
                         toggle("cloud_shadows", config::setCloudShadows, config::isCloudShadows),
                         range("cloud_coverage", 0, 100, 5, true, config::setCloudCoverage, config::getCloudCoverage),
+                        range("cloud_size", 50, 400, 10, true, config::setCloudSize, config::getCloudSize),
                         new RangeOption(Component.translatable("broje.options.cloud_height"), 128, 384, 8,
                                 value -> Component.literal("Y=" + value), config::setCloudHeight, config::getCloudHeight)
                                 .setTooltip(value -> Component.translatable("broje.options.cloud_height.tooltip")),
-                        range("cloud_thickness", 32, 256, 8, false, config::setCloudThickness, config::getCloudThickness),
-                        range("cloud_density", 25, 200, 5, true, config::setCloudDensity, config::getCloudDensity),
-                        range("cloud_spread", 0, 96, 8, false, config::setCloudSpread, config::getCloudSpread),
-                        range("cloud_upper", 0, 100, 5, true, config::setCloudUpperCoverage, config::getCloudUpperCoverage),
-                        range("cloud_lower", 0, 100, 5, true, config::setCloudLowerCoverage, config::getCloudLowerCoverage),
-                        range("cloud_evolution", 0, 100, 5, true, config::setCloudEvolution, config::getCloudEvolution),
                         range("cloud_wind", 0, 100, 5, true, config::setCloudWind, config::getCloudWind),
-                        range("cloud_distance", 1024, 8192, 256, false, config::setCloudDistance, config::getCloudDistance),
-                        new CyclingOption<>(Component.translatable("broje.options.cloud_resolution"), new Integer[] {25,50,100},
-                                config::setCloudResolution, config::getCloudResolution)
-                                .setTranslator(value -> Component.literal(value + "%"))
-                                .setTooltip(value -> Component.translatable("broje.options.cloud_resolution.tooltip")),
-                        new CyclingOption<>(Component.translatable("broje.options.cloud_quality"), new Integer[] {16,24,32,48,64},
+                        range("cloud_density", 20, 200, 5, true, config::setCloudDensity, config::getCloudDensity),
+                        range("cloud_airiness", 0, 100, 5, true, config::setCloudAiriness, config::getCloudAiriness),
+                        new CyclingOption<>(Component.translatable("broje.options.cloud_relief"), new Integer[] {0,1,2,3,4},
+                                config::setCloudRelief, config::getCloudRelief)
+                                .setTranslator(value -> Component.translatable("broje.cloud_relief." + value))
+                                .setTooltip(value -> Component.translatable("broje.options.cloud_relief.tooltip")),
+                        new CyclingOption<>(Component.translatable("broje.options.cloud_quality"), new Integer[] {0,1,2,3},
                                 config::setCloudQuality, config::getCloudQuality)
-                                .setTranslator(value -> Component.literal(value + ""))
+                                .setTranslator(value -> Component.translatable("broje.cloud_quality." + value))
                                 .setTooltip(value -> Component.translatable("broje.options.cloud_quality.tooltip"))
                 })
         }), new OptionPage(Component.translatable("broje.page.fog").getString(), new OptionBlock[] {

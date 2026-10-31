@@ -32,6 +32,7 @@ public class FogCheckMixin {
         else if(Boolean.getBoolean("broje.featureCheck")) FeatureGameCheck.frame();
         else if(Boolean.getBoolean("broje.atmosphereCheck")) AtmosphereGameCheck.frame();
         else if(Boolean.getBoolean("broje.cloudCheck")) dev.broje.check.CloudGameCheck.frame();
+        else if(Boolean.getBoolean("broje.cloudReflectionCheck")) dev.broje.check.CloudReflectionCheck.frame();
         else if(Boolean.getBoolean("broje.shadowCheck"))ShadowGameCheck.frame();else FogGameCheck.frame();
     }
 

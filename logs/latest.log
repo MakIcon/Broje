@@ -1,6 +1,6 @@
-[23:36:13] [main/WARN]: Could not load C:\Users\makar\AppData\Local\Temp\broje-config-check-9312825920256999422\broje.json. Using disabled defaults.
+[00:31:05] [main/WARN]: Could not load C:\Users\makar\AppData\Local\Temp\broje-config-check-14563883374916426876\broje.json. Using disabled defaults.
 com.google.gson.JsonParseException: fogDensity must be a number
-	at dev.broje.config.BrojeConfig.readInt(BrojeConfig.java:221)
-	at dev.broje.config.BrojeConfig.read(BrojeConfig.java:123)
-	at dev.broje.config.BrojeConfig.load(BrojeConfig.java:111)
-	at dev.broje.FogValidation.main(FogValidation.java:168)
+	at dev.broje.config.BrojeConfig.readInt(BrojeConfig.java:210)
+	at dev.broje.config.BrojeConfig.read(BrojeConfig.java:117)
+	at dev.broje.config.BrojeConfig.load(BrojeConfig.java:105)
+	at dev.broje.FogValidation.main(FogValidation.java:172)
