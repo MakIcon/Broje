@@ -121,7 +121,8 @@ public final class ShadowRenderer {
         for (String name : new String[] {"ShadowMatrix", "BrojeShadowMatrix", "BrojeShadowView", "BrojeShadowInverse"}) {
             uniforms.put(name, new MappedBuffer(64));
         }
-        for (String name : new String[] {"ShadowAlpha", "BrojeSunLight", "BrojeShadowSettings", "BrojeShadowMap", "BrojeFlags", "BrojeLighting", "BrojeTint", "BrojeTintBlend"}) {
+        for (String name : new String[] {"ShadowAlpha", "BrojeSunLight", "BrojeShadowSettings", "BrojeShadowMap", "BrojeFlags", "BrojeLighting", "BrojeTint", "BrojeTintBlend",
+                "BrojeCloudShadow", "BrojeCloudShadowMap"}) {
             uniforms.put(name, new MappedBuffer(16));
         }
         // Broje's other pipelines resolve these by name through VulkanMod's registry.
@@ -158,12 +159,14 @@ public final class ShadowRenderer {
                         .addUniform("vec4", "BrojeSunLight").addUniform("vec4", "BrojeShadowSettings")
                         .addUniform("vec4", "BrojeShadowMap").addUniform("vec4", "BrojeFlags")
                         .addUniform("vec4", "BrojeLighting").addUniform("vec4", "BrojeTint")
-                        .addUniform("vec4", "BrojeTintBlend").build())
+                        .addUniform("vec4", "BrojeTintBlend").addUniform("vec4", "BrojeCloudShadow")
+                        .addUniform("vec4", "BrojeCloudShadowMap").build())
                 .setPushConstants(PipelineConfig.UB.builder(0, vertex).addUniform("vec3", "ModelOffset").build())
                 .addImageDescriptor(4, "sampler2D", "Sampler0", 0)
                 .addImageDescriptor(5, "sampler2D", "Sampler2", 2)
                 .addImageDescriptor(6, "sampler2D", "Sampler1", 11)
                 .addImageDescriptor(7, "sampler2D", "Sampler3", 11)
+                .addImageDescriptor(8, "sampler2D", "Sampler4", 11)
                 .build();
     }
 
@@ -171,7 +174,14 @@ public final class ShadowRenderer {
         Pipeline.Builder builder = new Pipeline.Builder(CustomVertexFormat.COMPRESSED_TERRAIN, "broje:" + fragment);
         if (caster) builder.setUniformSupplierGetter(info -> uniforms.containsKey(info.name) ? () -> uniforms.get(info.name) : null);
         builder.applyConfig(config);
-        if (!caster) {builder.getImageDescriptors().set(2, mapDepth);builder.getImageDescriptors().set(3, mapTint);}
+        if (!caster) {builder.getImageDescriptors().set(2, mapDepth);builder.getImageDescriptors().set(3, mapTint);
+            builder.getImageDescriptors().set(4, new ImageDescriptor(8, "sampler2D", "Sampler4", 11, VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+                // Cloud shadows of the previous frame; white (no shadow) without them.
+                @Override public VulkanImage getImage() {
+                    VulkanImage map = CloudRenderer.shadowMap();
+                    return map != null ? map : VTextureSelector.getWhiteTexture();
+                }
+            });}
         builder.setShaderSrc(SPIRVUtils.ShaderKind.VERTEX_SHADER, resource(vertex + ".vsh"));
         builder.setShaderSrc(SPIRVUtils.ShaderKind.FRAGMENT_SHADER, withDefines(resource(fragment + ".fsh"), defines));
         GraphicsPipeline result = builder.createGraphicsPipeline();
@@ -353,6 +363,7 @@ public final class ShadowRenderer {
         vector("BrojeTint",config.getColoredContrast()*0.01f,config.getColoredMixing()*0.01f,
                 config.getColoredBrightness()*0.01f,config.getColoredSaturation()*0.01f);
         vector("BrojeTintBlend",config.isColoredShadows()?config.getColoredBlend():0,config.getColoredOverlap()*0.01f,0,0);
+        CloudRenderer.shadowUniforms(x, y, z, uniforms.get("BrojeCloudShadow"), uniforms.get("BrojeCloudShadowMap"));
         vector("BrojeShadowMap",config.getShadowResolution(),extent*2,DEPTH_SPAN,2*extent/config.getShadowResolution());
         String debug = System.getProperty("broje.shadowDebug", "");
         vector("BrojeFlags",debug.equals("mask")?1:debug.equals("map")?2:debug.equals("floor")?3:0,casting?1:0,distortion,config.getShadowFilter());

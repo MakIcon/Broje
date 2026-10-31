@@ -91,9 +91,12 @@ tasks.register('prepareFogCheck') {
             into 'run-fog-check/saves/FogCheck'
             exclude 'session.lock'
         }
-        file('run-fog-check/options.txt').text = project.hasProperty('fogPerformanceCheck')
+        file('run-fog-check/options.txt').text = project.hasProperty('fogPerformanceCheck') || project.hasProperty('cloudPerformanceCheck')
                 ? 'lang:en_us\nrenderDistance:10\nguiScale:2\nmaxFps:260\nenableVsync:false\npauseOnLostFocus:false\n'
                 : 'lang:en_us\nrenderDistance:10\nguiScale:2\nmaxFps:60\npauseOnLostFocus:false\n'
+        if (project.hasProperty('cloudUserConfig')) {
+            copy { from 'run/config/broje.json'; into 'run-fog-check/config' }
+        }
     }
 }
 
@@ -104,17 +107,49 @@ loom {
             name 'Broje fog integration check'
             runDir 'run-fog-check'
             if (project.hasProperty('atmosphereCheck')) vmArg '-Dbroje.atmosphereCheck=true'
+            if (project.hasProperty('cloudCheck')) vmArg '-Dbroje.cloudCheck=true'
+            if (project.hasProperty('cloudMotionCheck')) vmArg '-Dbroje.cloudMotionCheck=true'
+            if (project.hasProperty('cloudFluff')) vmArg "-Dbroje.cloudFluff=${project.property('cloudFluff')}"
+            if (project.hasProperty('cloudStyle')) vmArg "-Dbroje.cloudStyle=${project.property('cloudStyle')}"
+            if (project.hasProperty('cloudCover')) vmArg "-Dbroje.cloudCover=${project.property('cloudCover')}"
             if (project.hasProperty('fogPerformanceCheck')) vmArg '-Dbroje.fogPerformanceCheck=true'
+            if (project.hasProperty('cloudPerformanceCheck')) vmArg '-Dbroje.cloudPerformanceCheck=true'
+            if (project.hasProperty('cloudUserConfig')) vmArg '-Dbroje.cloudUserConfig=true'
             vmArg "-Dfabric.addMods=${layout.buildDirectory.file('fog-check/broje-fog-check.jar').get().asFile.absolutePath}"
-            programArgs '--quickPlaySingleplayer', 'FogCheck', '--width',
-                    project.hasProperty('fogPerformanceCheck') ? '1920' : '960', '--height',
-                    project.hasProperty('fogPerformanceCheck') ? '1080' : '600'
+            def fullHd = project.hasProperty('fogPerformanceCheck') || project.hasProperty('cloudPerformanceCheck')
+            programArgs '--quickPlaySingleplayer', 'FogCheck',
+                    '--width', (project.findProperty('cloudWidth') ?: (fullHd ? '1920' : '960')).toString(),
+                    '--height', (project.findProperty('cloudHeightPixels') ?: (fullHd ? '1080' : '600')).toString()
         }
     }
 }
 
 tasks.named('runFogCheck') {
     dependsOn fogCheckMod, prepareFogCheck
+}
+
+tasks.register('verifyCloudStability', JavaExec) {
+    group = 'verification'
+    description = 'Check frozen clouds for heat-haze shimmer. Use -PcloudCheck.'
+    dependsOn runFogCheck, validationClasses
+    doFirst {
+        if (!project.hasProperty('cloudCheck')) throw new GradleException('Use verifyCloudStability -PcloudCheck')
+    }
+    classpath = sourceSets.validation.runtimeClasspath
+    mainClass = 'dev.broje.check.CloudStabilityValidation'
+    args layout.projectDirectory.dir('run-fog-check/screenshots').asFile.absolutePath
+}
+
+tasks.register('verifyCloudMotion', JavaExec) {
+    group = 'verification'
+    description = 'Compare clouds immediately after camera movement and after holding the same pose.'
+    dependsOn runFogCheck, validationClasses
+    doFirst {
+        if (!project.hasProperty('cloudMotionCheck')) throw new GradleException('Use -PcloudMotionCheck -PcloudUserConfig')
+    }
+    classpath = sourceSets.validation.runtimeClasspath
+    mainClass = 'dev.broje.check.CloudMotionValidation'
+    args layout.projectDirectory.dir('run-fog-check/screenshots').asFile.absolutePath
 }
 
 tasks.register('verifyFogCaptures', JavaExec) {

@@ -25,6 +25,12 @@ public final class FogValidation {
             String fog = Files.readString(shaders.resolve("fog.fsh"));
             compile(compiler, options, "fog.fsh (reduced)", withDefines(fog, "#define FOG_REDUCED\n"), Shaderc.shaderc_fragment_shader);
             compile(compiler, options, "fog.fsh (resolve)", withDefines(fog, "#define FOG_RESOLVE\n"), Shaderc.shaderc_fragment_shader);
+            String clouds = Files.readString(shaders.resolve("clouds.fsh"));
+            compile(compiler, options, "clouds.fsh (march)", clouds, Shaderc.shaderc_fragment_shader);
+            compile(compiler, options, "clouds.fsh (resolve)", withDefines(clouds, "#define CLOUDS_RESOLVE\n"), Shaderc.shaderc_fragment_shader);
+            compile(compiler, options, "clouds.fsh (spatial filter)", withDefines(clouds, "#define CLOUDS_FILTER\n"), Shaderc.shaderc_fragment_shader);
+            compile(compiler, options, "clouds.fsh (shadow)", withDefines(clouds, "#define CLOUDS_SHADOW\n"), Shaderc.shaderc_fragment_shader);
+            compile(compiler, options, "clouds.fsh (weather)", withDefines(clouds, "#define CLOUDS_WEATHER\n"), Shaderc.shaderc_fragment_shader);
             compile(compiler, options, shaders.resolve("sun.vsh"), Shaderc.shaderc_vertex_shader);
             compile(compiler, options, shaders.resolve("sun.fsh"), Shaderc.shaderc_fragment_shader);
             String solarBloom=Files.readString(shaders.resolve("sun_bloom_common.glsl"));
@@ -60,6 +66,18 @@ public final class FogValidation {
             check(migrated.isEnabled() && migrated.isFogEnabled() && migrated.isVolumetricFog(), "Old config migration");
             check(migrated.getFogQuality() == 32 && migrated.getFogDensity() == 45, "New default values");
             check(migrated.getFogResolution() == 50, "Old configs gain reduced fog resolution");
+            check(migrated.isCloudsEnabled() && migrated.getCloudCoverage() == 45 && migrated.getCloudHeight() == 192
+                    && migrated.getCloudThickness() == 160 && migrated.getCloudQuality() == 32 && migrated.getCloudResolution() == 50
+                    && migrated.getCloudFluffiness() == 80 && migrated.getCloudSpread() == 48
+                    && migrated.getCloudUpperCoverage() == 30 && migrated.getCloudLowerCoverage() == 24 && migrated.getCloudEvolution() == 50
+                    && migrated.getCloudStyle() == 2 && migrated.isCloudShadows(), "Cloud defaults in old configs");
+            migrated.setCloudQuality(40);migrated.setCloudResolution(30);migrated.setCloudHeight(9999);migrated.setCloudThickness(1);
+            migrated.setCloudLowerCoverage(-10);
+            check(migrated.getCloudLowerCoverage() == 0, "Lower clouds can be disabled");
+            migrated.setCloudLowerCoverage(120);
+            check(migrated.getCloudLowerCoverage() == 100, "Lower cloud coverage upper limit");
+            check(migrated.getCloudQuality() == 48 && migrated.getCloudResolution() == 50 && migrated.getCloudHeight() == 384
+                    && migrated.getCloudThickness() == 32, "Cloud steps, resolution and layer limits");
             migrated.setFogResolution(70);
             check(migrated.getFogResolution() == 75, "Intermediate fog resolution");
             migrated.setFogResolution(999);
@@ -103,6 +121,7 @@ public final class FogValidation {
             migrated.setVolumetricFog(false);
             migrated.save();
             BrojeConfig restored = BrojeConfig.load(file);
+            check(restored.getCloudLowerCoverage() == 100, "Lower cloud coverage persists");
             check(restored.getFogResolution() == 100, "Fog resolution persists");
             restored.setFogResolution(-1);
             check(restored.getFogResolution() == 50, "Fog resolution lower limit");
@@ -134,6 +153,10 @@ public final class FogValidation {
             check(reset.isWaterEnabled()&&reset.isWaterSsr()&&reset.getWaterWaves()==65&&reset.getWaterAbsorption()==100
                     &&reset.getWaterRefraction()==45&&reset.getWaterCaustics()==70&&reset.getWaterQuality()==32,"Reset water options");
             check(reset.getSunPathTilt() == 0, "Reset solar orbit");
+            reset.setCloudLowerCoverage(90);
+            reset.resetToDefaults();
+            check(reset.isCloudsEnabled() && reset.getCloudHeight() == 192 && reset.getCloudQuality() == 32
+                    && reset.getCloudLowerCoverage() == 24, "Reset clouds");
             check(reset.getSunBloomStrength()==100&&reset.getSunBloomRadius()==100,"Reset solar bloom");
             check(reset.getColoredBlend()==2 && reset.getColoredBrightness()==100 && reset.getColoredSaturation()==130
                     && reset.getColoredOverlap()==100,"Reset all colored controls");

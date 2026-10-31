@@ -17,6 +17,7 @@ public abstract class GameRendererMixin {
     @Inject(method = "renderLevel", at = @At(value = "INVOKE", shift = At.Shift.AFTER,
             target = "Lnet/minecraft/client/renderer/LevelRenderer;renderLevel(Lcom/mojang/blaze3d/resource/GraphicsResourceAllocator;Lnet/minecraft/client/DeltaTracker;ZLnet/minecraft/client/renderer/state/level/CameraRenderState;Lorg/joml/Matrix4fc;Lcom/mojang/blaze3d/buffers/GpuBufferSlice;Lorg/joml/Vector4f;ZLnet/minecraft/client/renderer/chunk/ChunkSectionsToRender;)V"))
     private void broje$renderFog(DeltaTracker deltaTracker, CallbackInfo ci) {
+        dev.broje.render.CloudRenderer.render(Minecraft.getInstance().gameRenderer.getGameRenderState(), deltaTracker);
         FogRenderer.render(Minecraft.getInstance().gameRenderer.getGameRenderState(), deltaTracker);
         WaterRenderer.renderUnderwater(Minecraft.getInstance().gameRenderer.getGameRenderState(), deltaTracker);
         dev.broje.render.SunBloomRenderer.render(Minecraft.getInstance().gameRenderer.getGameRenderState());
@@ -33,6 +34,7 @@ public abstract class GameRendererMixin {
     @Inject(method = "close", at = @At("HEAD"))
     private void broje$closeFog(CallbackInfo ci) {
         ShadowRenderer.close();
+        dev.broje.render.CloudRenderer.close();
         FogRenderer.close();
         WaterRenderer.close();
         dev.broje.render.SunRenderer.close();

@@ -32,6 +32,22 @@ public final class BrojeConfig {
     private int fogDistance = 256;
     private int fogQuality = 32;
     private int fogResolution = 50;
+    private boolean cloudsEnabled = true;
+    private int cloudStyle = 2;
+    private boolean cloudShadows = true;
+    private int cloudCoverage = 45;
+    private int cloudHeight = 192;
+    private int cloudThickness = 160;
+    private int cloudDensity = 100;
+    private int cloudFluffiness = 80;
+    private int cloudSpread = 48;
+    private int cloudUpperCoverage = 30;
+    private int cloudLowerCoverage = 24;
+    private int cloudEvolution = 50;
+    private int cloudWind = 25;
+    private int cloudDistance = 4096;
+    private int cloudQuality = 32;
+    private int cloudResolution = 50;
     private boolean shadowsEnabled = true;
     private int shadowResolution = 2048;
     private int shadowDistance = 64;
@@ -113,6 +129,22 @@ public final class BrojeConfig {
         setFogDistance(readInt(json, "fogDistance", 256));
         setFogQuality(readInt(json, "fogQuality", 32));
         setFogResolution(readInt(json, "fogResolution", 50));
+        cloudsEnabled = readBoolean(json, "cloudsEnabled", true);
+        setCloudStyle(readInt(json, "cloudStyle", 2));
+        cloudShadows = readBoolean(json, "cloudShadows", true);
+        setCloudCoverage(readInt(json, "cloudCoverage", 45));
+        setCloudHeight(readInt(json, "cloudHeight", 192));
+        setCloudThickness(readInt(json, "cloudThickness", 160));
+        setCloudDensity(readInt(json, "cloudDensity", 100));
+        setCloudFluffiness(readInt(json, "cloudFluffiness", 80));
+        setCloudSpread(readInt(json, "cloudSpread", 48));
+        setCloudUpperCoverage(readInt(json, "cloudUpperCoverage", 30));
+        setCloudLowerCoverage(readInt(json, "cloudLowerCoverage", 24));
+        setCloudEvolution(readInt(json, "cloudEvolution", 50));
+        setCloudWind(readInt(json, "cloudWind", 25));
+        setCloudDistance(readInt(json, "cloudDistance", 4096));
+        setCloudQuality(readInt(json, "cloudQuality", 32));
+        setCloudResolution(readInt(json, "cloudResolution", 50));
         shadowsEnabled = readBoolean(json, "shadowsEnabled", true);
         setShadowResolution(readInt(json, "shadowResolution", 2048));
         setShadowDistance(readInt(json, "shadowDistance", 64));
@@ -216,6 +248,39 @@ public final class BrojeConfig {
     public void setFogQuality(int value) { fogQuality = value <= 16 ? 16 : value <= 32 ? 32 : value <= 48 ? 48 : 64; }
     public int getFogResolution() { return fogResolution; }
     public void setFogResolution(int value) { fogResolution = value <= 50 ? 50 : value <= 75 ? 75 : 100; }
+    public boolean isCloudsEnabled() { return cloudsEnabled; }
+    public void setCloudsEnabled(boolean value) { cloudsEnabled = value; }
+    /** 0 Minecraft blocks, 1 cumulus field, 2 realistic single clouds. */
+    public int getCloudStyle() { return cloudStyle; }
+    public void setCloudStyle(int value) { cloudStyle = clamp(value, 0, 2); }
+    public boolean isCloudShadows() { return cloudShadows; }
+    public void setCloudShadows(boolean value) { cloudShadows = value; }
+    public int getCloudCoverage() { return cloudCoverage; }
+    public void setCloudCoverage(int value) { cloudCoverage = clamp(value, 0, 100); }
+    public int getCloudHeight() { return cloudHeight; }
+    public void setCloudHeight(int value) { cloudHeight = clamp(value, 128, 384); }
+    public int getCloudThickness() { return cloudThickness; }
+    public void setCloudThickness(int value) { cloudThickness = clamp(value, 32, 256); }
+    public int getCloudDensity() { return cloudDensity; }
+    public void setCloudDensity(int value) { cloudDensity = clamp(value, 25, 200); }
+    public int getCloudFluffiness() { return cloudFluffiness; }
+    public void setCloudFluffiness(int value) { cloudFluffiness = clamp(value, 0, 100); }
+    public int getCloudSpread() { return cloudSpread; }
+    public void setCloudSpread(int value) { cloudSpread = clamp(value, 0, 96); }
+    public int getCloudUpperCoverage() { return cloudUpperCoverage; }
+    public void setCloudUpperCoverage(int value) { cloudUpperCoverage = clamp(value, 0, 100); }
+    public int getCloudLowerCoverage() { return cloudLowerCoverage; }
+    public void setCloudLowerCoverage(int value) { cloudLowerCoverage = clamp(value, 0, 100); }
+    public int getCloudEvolution() { return cloudEvolution; }
+    public void setCloudEvolution(int value) { cloudEvolution = clamp(value, 0, 100); }
+    public int getCloudWind() { return cloudWind; }
+    public void setCloudWind(int value) { cloudWind = clamp(value, 0, 100); }
+    public int getCloudDistance() { return cloudDistance; }
+    public void setCloudDistance(int value) { cloudDistance = clamp(value, 1024, 8192); }
+    public int getCloudQuality() { return cloudQuality; }
+    public void setCloudQuality(int value) { cloudQuality = value <= 16 ? 16 : value <= 24 ? 24 : value <= 32 ? 32 : value <= 48 ? 48 : 64; }
+    public int getCloudResolution() { return cloudResolution; }
+    public void setCloudResolution(int value) { cloudResolution = value <= 25 ? 25 : value <= 50 ? 50 : 100; }
     public boolean isShadowsEnabled() { return shadowsEnabled; }
     public void setShadowsEnabled(boolean value) { shadowsEnabled = value; }
     public int getShadowResolution() { return shadowResolution; }
@@ -284,6 +349,22 @@ public final class BrojeConfig {
         json.addProperty("fogDistance", fogDistance);
         json.addProperty("fogQuality", fogQuality);
         json.addProperty("fogResolution", fogResolution);
+        json.addProperty("cloudsEnabled", cloudsEnabled);
+        json.addProperty("cloudStyle", cloudStyle);
+        json.addProperty("cloudShadows", cloudShadows);
+        json.addProperty("cloudCoverage", cloudCoverage);
+        json.addProperty("cloudHeight", cloudHeight);
+        json.addProperty("cloudThickness", cloudThickness);
+        json.addProperty("cloudDensity", cloudDensity);
+        json.addProperty("cloudFluffiness", cloudFluffiness);
+        json.addProperty("cloudSpread", cloudSpread);
+        json.addProperty("cloudUpperCoverage", cloudUpperCoverage);
+        json.addProperty("cloudLowerCoverage", cloudLowerCoverage);
+        json.addProperty("cloudEvolution", cloudEvolution);
+        json.addProperty("cloudWind", cloudWind);
+        json.addProperty("cloudDistance", cloudDistance);
+        json.addProperty("cloudQuality", cloudQuality);
+        json.addProperty("cloudResolution", cloudResolution);
         json.addProperty("shadowsEnabled", shadowsEnabled);
         json.addProperty("shadowResolution", shadowResolution);
         json.addProperty("shadowDistance", shadowDistance);

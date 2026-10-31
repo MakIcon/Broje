@@ -94,10 +94,12 @@ public final class FogRenderer {
         builder.getImageDescriptors().set(0, depthSampler);
         builder.getImageDescriptors().set(1, new SunMapSampler());
         builder.getImageDescriptors().set(2, new OpaqueSampler());
+        // Outside the descriptor: inside it, `name` is ImageDescriptor's own field ("Sampler3").
+        boolean resolve = name.equals("resolve");
         builder.getImageDescriptors().set(3, new ImageDescriptor(4, "sampler2D", "Sampler3", 11, VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
             @Override public VulkanImage getImage() {
                 // Do not bind the reduced image while writing to that same image.
-                return name.equals("resolve") && reducedTarget != null
+                return resolve && reducedTarget != null
                         ? reducedTarget.getColorAttachment() : VTextureSelector.getWhiteTexture();
             }
         });
@@ -130,7 +132,9 @@ public final class FogRenderer {
      * opaque world, so the fog can run on behind glass instead of stopping at the pane.
      */
     public static void snapshotOpaqueDepth() {
-        if (snapshotReady || instance == null || !wanted(Minecraft.getInstance().gameRenderer.getGameRenderState())) return;
+        GameRenderState state = Minecraft.getInstance().gameRenderer.getGameRenderState();
+        // Volumetric clouds look through glass too, even with the fog off.
+        if (snapshotReady || !(wanted(state) || CloudRenderer.wanted(state)) || !ensureInstance()) return;
         try {
             snapshotReady = instance.copyOpaqueDepth();
         } catch (RuntimeException exception) {
@@ -198,17 +202,26 @@ public final class FogRenderer {
 
     public static void render(GameRenderState state, DeltaTracker deltaTracker) {
         BrojeConfig config = BrojeClient.CONFIG;
-        if (!wanted(state)) return;
-        if (instance == null) {
-            try {
-                instance = new FogRenderer();
-            } catch (RuntimeException exception) {
-                failed = true;
-                BrojeClient.LOGGER.error("Broje fog could not initialize. Keeping the normal VulkanMod image.", exception);
-                return;
-            }
-        }
+        if (!wanted(state) || !ensureInstance()) return;
         instance.draw(state, deltaTracker, config);
+    }
+
+    private static boolean ensureInstance() {
+        if (instance != null) return true;
+        if (failed) return false;
+        try {
+            instance = new FogRenderer();
+            return true;
+        } catch (RuntimeException exception) {
+            failed = true;
+            BrojeClient.LOGGER.error("Broje fog could not initialize. Keeping the normal VulkanMod image.", exception);
+            return false;
+        }
+    }
+
+    /** This frame's world depth before translucent terrain (R32F), or null without a snapshot. */
+    static VulkanImage opaqueDepth() {
+        return snapshotReady && instance != null && instance.opaqueTarget != null ? instance.opaqueTarget.getColorAttachment() : null;
     }
 
     private void draw(GameRenderState state, DeltaTracker deltaTracker, BrojeConfig config) {
@@ -349,7 +362,7 @@ public final class FogRenderer {
         buffer.putFloat(0, x); buffer.putFloat(4, y); buffer.putFloat(8, z); buffer.putFloat(12, w);
     }
 
-    private static String resource(String name) {
+    static String resource(String name) {
         try (InputStream stream = FogRenderer.class.getResourceAsStream("/assets/broje/shaders/" + name)) {
             if (stream == null) throw new IOException("Missing fog resource: " + name);
             return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
@@ -385,7 +398,7 @@ public final class FogRenderer {
         snapshotReady = false;
     }
 
-    private record RenderState(boolean depthTest, boolean depthMask, boolean cull, int topology,
+    record RenderState(boolean depthTest, boolean depthMask, boolean cull, int topology,
                                int polygonMode, int colorMask, boolean logicOp, PipelineState.BlendInfo blend) {
         RenderState() {
             this(VRenderSystem.depthTest, VRenderSystem.depthMask, VRenderSystem.cull, VRenderSystem.topology,
@@ -424,7 +437,7 @@ public final class FogRenderer {
         }
     }
 
-    private static final class DepthSampler extends ImageDescriptor {
+    static final class DepthSampler extends ImageDescriptor {
         private final Map<VulkanImage, Long> views = new IdentityHashMap<>();
 
         DepthSampler() { super(1, "sampler2D", "Sampler0", 0, VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); }

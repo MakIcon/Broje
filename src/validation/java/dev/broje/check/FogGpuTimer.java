@@ -12,6 +12,8 @@ public final class FogGpuTimer {
     private static long pool;
     private static float period;
     private static boolean[] used;
+    /** Receives each finished measurement in milliseconds. */
+    public static java.util.function.DoubleConsumer sink = FogPerformanceCheck::recordGpu;
 
     public static void begin() {
         try (var stack = MemoryStack.stackPush()) {
@@ -33,7 +35,7 @@ public final class FogGpuTimer {
                 int result = VK10.vkGetQueryPoolResults(Vulkan.getVkDevice(), pool, slot, 2, values, 16,
                         VK10.VK_QUERY_RESULT_64_BIT | VK10.VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
                 if (result == VK10.VK_SUCCESS && values.get(1) != 0 && values.get(3) != 0)
-                    FogPerformanceCheck.recordGpu((values.get(2) - values.get(0)) * (double) period / 1e6);
+                    sink.accept((values.get(2) - values.get(0)) * (double) period / 1e6);
             }
             Renderer.getInstance().endRenderPass();
             VK10.vkCmdResetQueryPool(Renderer.getCommandBuffer(), pool, slot, 2);

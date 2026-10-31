@@ -1,0 +1,25 @@
+{
+  "UBOs": [{
+    "binding": 0,
+    "type": "fragment",
+    "fields": [
+      { "name": "BrojeInverseProjection", "type": "matrix4x4", "count": 16 },
+      { "name": "BrojeInverseView", "type": "matrix4x4", "count": 16 },
+      { "name": "BrojeCamera", "type": "float", "count": 4 },
+      { "name": "BrojeCloudShape", "type": "float", "count": 4 },
+      { "name": "BrojeCloudWind", "type": "float", "count": 4 },
+      { "name": "BrojeCloudMarch", "type": "float", "count": 4 },
+      { "name": "BrojeCloudLight", "type": "float", "count": 4 },
+      { "name": "BrojeCloudSun", "type": "float", "count": 4 },
+      { "name": "BrojeCloudAmbient", "type": "float", "count": 4 },
+      { "name": "BrojeCloudHorizon", "type": "float", "count": 4 },
+      { "name": "BrojeCloudTarget", "type": "float", "count": 4 },
+      { "name": "BrojeCloudLayers", "type": "float", "count": 4 },
+      { "name": "BrojeCloudFrame", "type": "float", "count": 4 },
+      { "name": "BrojeCloudExtra", "type": "float", "count": 4 },
+      { "name": "BrojeCloudMotion", "type": "float", "count": 4 },
+      { "name": "BrojePreviousViewProjection", "type": "matrix4x4", "count": 16 }
+    ]
+  }],
+  "samplers": [{ "name": "Sampler0" }, { "name": "Sampler1" }, { "name": "Sampler2" }, { "name": "Sampler3" }, { "name": "Sampler4" }, { "name": "Sampler5" }]
+}

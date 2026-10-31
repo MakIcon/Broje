@@ -25,10 +25,13 @@ public class FogCheckMixin {
 
     @Inject(method = "render", at = @At("TAIL"))
     private void broje$check(CallbackInfo ci) {
-        if(Boolean.getBoolean("broje.fogPerformanceCheck")) FogPerformanceCheck.frame();
+        if(Boolean.getBoolean("broje.cloudMotionCheck")) dev.broje.check.CloudMotionCheck.frame();
+        else if(Boolean.getBoolean("broje.cloudPerformanceCheck")) dev.broje.check.CloudPerformanceCheck.frame();
+        else if(Boolean.getBoolean("broje.fogPerformanceCheck")) FogPerformanceCheck.frame();
         else if(Boolean.getBoolean("broje.waterCheck")) WaterGameCheck.frame();
         else if(Boolean.getBoolean("broje.featureCheck")) FeatureGameCheck.frame();
         else if(Boolean.getBoolean("broje.atmosphereCheck")) AtmosphereGameCheck.frame();
+        else if(Boolean.getBoolean("broje.cloudCheck")) dev.broje.check.CloudGameCheck.frame();
         else if(Boolean.getBoolean("broje.shadowCheck"))ShadowGameCheck.frame();else FogGameCheck.frame();
     }
 

@@ -115,8 +115,11 @@ void main() {
     // An infinite-far projection has w=0 at clear depth. At distant clouds/terrain,
     // depth quantization can round neighbouring samples onto that plane. They must
     // integrate the same air as their neighbours, never alternate with no fog.
-    vec4 ray = viewAt(ndc, 0.5);
-    vec3 viewRay = normalize(ray.xyz / ray.w);
+    // Two finite points of the ray, not one point seen from the origin: view bobbing
+    // shifts the eye inside the projection by about that point's own distance.
+    vec4 rayNear = viewAt(ndc, 0.0);
+    vec4 rayMiddle = viewAt(ndc, 0.5);
+    vec3 viewRay = normalize(rayMiddle.xyz / rayMiddle.w - rayNear.xyz / rayNear.w);
     float surfaceDistance = view.w > 1e-7 ? length(view.xyz / view.w) : BrojeAtmosphere.w;
     if (BrojeSun.w < -0.5) { fragColor = vec4(depth, clamp(surfaceDistance / 128.0, 0.0, 1.0), clamp(BrojeInverseProjection[3][3] / 20.0, 0.0, 1.0), 1); return; }
     if (surfaceDistance < 1e-5 || isnan(surfaceDistance) || isinf(surfaceDistance)) {

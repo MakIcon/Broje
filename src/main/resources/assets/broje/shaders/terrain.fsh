@@ -18,10 +18,13 @@ layout(std140,binding=3) uniform SunLight {
     vec4 BrojeLighting;       // bounce, foliage glow, light color, GI samples (0 = off)
     vec4 BrojeTint;           // contrast, mixing, brightness, saturation
     vec4 BrojeTintBlend;      // blend mode, overlap brightness, unused
+    vec4 BrojeCloudShadow;    // camera minus cloud shadow map centre x/z, map plane Y minus camera Y, strength
+    vec4 BrojeCloudShadowMap; // 1 / map range, light direction
 };
 layout(binding=4) uniform sampler2D Sampler0;
 layout(binding=6) uniform sampler2D Sampler1; // sun depth map
 layout(binding=7) uniform sampler2D Sampler3; // sunlight transmittance of glass in front of it
+layout(binding=8) uniform sampler2D Sampler4; // sunlight through the clouds, on a plane below them
 
 layout(location=0) in vec4 vertexColor;
 layout(location=1) in vec2 texCoord0;
@@ -49,6 +52,27 @@ float localTexel(vec3 position) {
     vec4 clip=BrojeShadowMatrix*vec4(position,1);
     float d=distortionFactor(clip.xy);
     return BrojeShadowMap.w*d*d/max(1.0-BrojeFlags.z,0.05);
+}
+
+// Sunlight let through by the clouds: this point is carried along the light onto the
+// cloud shadow map's plane and read there, bilinearly. It fades out toward the map
+// edge, beyond which nothing is known.
+float cloudShadow(vec3 position) {
+    if(BrojeCloudShadow.w<=0.0)return 1.0;
+    vec3 light=BrojeCloudShadowMap.yzw;
+    vec2 onPlane=position.xz+BrojeCloudShadow.xy+light.xz*((BrojeCloudShadow.z-position.y)/light.y);
+    vec2 uv=onPlane*BrojeCloudShadowMap.x+0.5;
+    float edge=1.0-smoothstep(0.4,0.48,max(abs(uv.x-0.5),abs(uv.y-0.5)));
+    if(edge<=0.0)return 1.0;
+    ivec2 size=textureSize(Sampler4,0);
+    vec2 p=uv*vec2(size)-0.5;
+    ivec2 base=ivec2(floor(p));vec2 f=fract(p);
+    float a=texelFetch(Sampler4,clamp(base,ivec2(0),size-1),0).r;
+    float b=texelFetch(Sampler4,clamp(base+ivec2(1,0),ivec2(0),size-1),0).r;
+    float c=texelFetch(Sampler4,clamp(base+ivec2(0,1),ivec2(0),size-1),0).r;
+    float d=texelFetch(Sampler4,clamp(base+ivec2(1,1),ivec2(0),size-1),0).r;
+    float through=mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+    return mix(1.0,through,BrojeCloudShadow.w*edge);
 }
 
 bool insideMap(vec3 shadow) {
@@ -300,7 +324,7 @@ void main() {
     // open to the sky (high sky light) receive the direct share, so caves, rooms and
     // overhangs keep their vanilla lighting instead of being darkened by the map.
     float fade=1-smoothstep(BrojeShadowSettings.z*0.7,BrojeShadowSettings.z,distance);
-    vec3 visibility=mix(vec3(1),raw,fade);
+    vec3 visibility=mix(vec3(1),raw,fade)*cloudShadow(relativePosition);
     float direct=BrojeShadowSettings.x*BrojeSunLight.w*smoothstep(0.5,0.85,skyLight);
     float sky=1.0-direct;
     float tint=BrojeLighting.z*BrojeSunLight.w;
