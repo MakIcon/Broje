@@ -1,9 +1,11 @@
 package dev.broje.check.mixin;
 
 import dev.broje.check.FogGameCheck;
+import dev.broje.check.FogPerformanceCheck;
 import dev.broje.check.ShadowGameCheck;
 import dev.broje.check.AtmosphereGameCheck;
 import dev.broje.check.FeatureGameCheck;
+import dev.broje.check.WaterGameCheck;
 
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.DeltaTracker;
@@ -23,8 +25,15 @@ public class FogCheckMixin {
 
     @Inject(method = "render", at = @At("TAIL"))
     private void broje$check(CallbackInfo ci) {
-        if(Boolean.getBoolean("broje.featureCheck")) FeatureGameCheck.frame();
+        if(Boolean.getBoolean("broje.fogPerformanceCheck")) FogPerformanceCheck.frame();
+        else if(Boolean.getBoolean("broje.waterCheck")) WaterGameCheck.frame();
+        else if(Boolean.getBoolean("broje.featureCheck")) FeatureGameCheck.frame();
         else if(Boolean.getBoolean("broje.atmosphereCheck")) AtmosphereGameCheck.frame();
         else if(Boolean.getBoolean("broje.shadowCheck"))ShadowGameCheck.frame();else FogGameCheck.frame();
+    }
+
+    @Inject(method = "close", at = @At("HEAD"))
+    private void broje$closeTimer(CallbackInfo ci) {
+        dev.broje.check.FogGpuTimer.close();
     }
 }

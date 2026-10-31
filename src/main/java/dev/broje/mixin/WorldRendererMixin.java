@@ -1,6 +1,7 @@
 package dev.broje.mixin;
 
 import dev.broje.render.FogRenderer;
+import dev.broje.render.WaterRenderer;
 import net.vulkanmod.render.chunk.WorldRenderer;
 import net.vulkanmod.render.vertex.TerrainRenderType;
 import org.joml.Matrix4f;
@@ -16,6 +17,9 @@ public abstract class WorldRendererMixin {
     @Inject(method = "renderSectionLayer", at = @At("HEAD"))
     private void broje$opaqueDepth(TerrainRenderType type, double x, double y, double z, Matrix4f modelView,
                                    Matrix4f projection, CallbackInfo ci) {
-        if (type == TerrainRenderType.TRANSLUCENT) FogRenderer.snapshotOpaqueDepth();
+        if (type == TerrainRenderType.TRANSLUCENT) {
+            FogRenderer.snapshotOpaqueDepth();
+            WaterRenderer.snapshot(modelView, projection);
+        }
     }
 }

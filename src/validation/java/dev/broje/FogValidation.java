@@ -22,12 +22,24 @@ public final class FogValidation {
             Shaderc.shaderc_compile_options_set_optimization_level(options, Shaderc.shaderc_optimization_level_performance);
             compile(compiler, options, shaders.resolve("fog.vsh"), Shaderc.shaderc_vertex_shader);
             compile(compiler, options, shaders.resolve("fog.fsh"), Shaderc.shaderc_fragment_shader);
+            String fog = Files.readString(shaders.resolve("fog.fsh"));
+            compile(compiler, options, "fog.fsh (reduced)", withDefines(fog, "#define FOG_REDUCED\n"), Shaderc.shaderc_fragment_shader);
+            compile(compiler, options, "fog.fsh (resolve)", withDefines(fog, "#define FOG_RESOLVE\n"), Shaderc.shaderc_fragment_shader);
+            compile(compiler, options, shaders.resolve("sun.vsh"), Shaderc.shaderc_vertex_shader);
+            compile(compiler, options, shaders.resolve("sun.fsh"), Shaderc.shaderc_fragment_shader);
+            String solarBloom=Files.readString(shaders.resolve("sun_bloom_common.glsl"));
+            for(String name:new String[]{"sun_bloom_extract.fsh","sun_bloom_down.fsh","sun_bloom_flux.fsh","sun_bloom_add.fsh"})
+                compile(compiler,options,name,Files.readString(shaders.resolve(name)).replace("// BLOOM_COMMON",solarBloom),Shaderc.shaderc_fragment_shader);
             compile(compiler, options, shaders.resolve("shadow_caster.vsh"), Shaderc.shaderc_vertex_shader);
             compile(compiler, options, shaders.resolve("shadow_caster.fsh"), Shaderc.shaderc_fragment_shader);
             compile(compiler, options, shaders.resolve("shadow_tint.fsh"), Shaderc.shaderc_fragment_shader);
             compile(compiler, options, shaders.resolve("depth_copy.fsh"), Shaderc.shaderc_fragment_shader);
             compile(compiler, options, shaders.resolve("terrain.vsh"), Shaderc.shaderc_vertex_shader);
             compile(compiler, options, shaders.resolve("terrain.fsh"), Shaderc.shaderc_fragment_shader);
+            String common=Files.readString(shaders.resolve("water_common.glsl"));
+            for(String name:new String[]{"water.vsh","water.fsh","underwater.fsh","water_copy.fsh","water_mirror.fsh"})
+                compile(compiler,options,name,Files.readString(shaders.resolve(name)).replace("// WATER_COMMON",common),
+                        name.endsWith("vsh")?Shaderc.shaderc_vertex_shader:Shaderc.shaderc_fragment_shader);
             // Variants assembled at runtime: the cutout terrain layer and the entity casters.
             compile(compiler, options, "terrain.fsh (cutout)", withDefines(Files.readString(shaders.resolve("terrain.fsh")), "#define CUTOUT_LAYER\n"), Shaderc.shaderc_fragment_shader);
             String casterInputs = "layout(location=0) in vec3 Position;\nlayout(location=2) in vec2 UV0;\n#define TEXTURED\n";
@@ -47,7 +59,27 @@ public final class FogValidation {
             BrojeConfig migrated = BrojeConfig.load(file);
             check(migrated.isEnabled() && migrated.isFogEnabled() && migrated.isVolumetricFog(), "Old config migration");
             check(migrated.getFogQuality() == 32 && migrated.getFogDensity() == 45, "New default values");
+            check(migrated.getFogResolution() == 50, "Old configs gain reduced fog resolution");
+            migrated.setFogResolution(70);
+            check(migrated.getFogResolution() == 75, "Intermediate fog resolution");
+            migrated.setFogResolution(999);
+            check(migrated.getFogResolution() == 100, "Full-resolution fog upper limit");
+            check(migrated.isWaterEnabled()&&migrated.isWaterSsr()&&migrated.isUnderwaterShafts()
+                    &&migrated.getWaterQuality()==32&&migrated.getWaterWaves()==65,"Water defaults in old configs");
+            check(migrated.isUnderwaterReflections()&&migrated.getUnderwaterReflectionStrength()==20,"Weak, independently controlled underwater reflection migration");
+            check(migrated.getUnderwaterShaftStrength()==100&&migrated.getUnderwaterShaftQuality()==24,"Independent shaft migration defaults");
+            migrated.setUnderwaterShaftStrength(999);migrated.setUnderwaterShaftQuality(999);
+            check(migrated.getWaterSsrRays()==1&&!migrated.isWaterSsrPrecise()&&migrated.getUnderwaterReflectionResolution()==256
+                    &&migrated.getUnderwaterReflectionInterval()==2,"Economical reflection migration defaults");
+            migrated.setWaterSsrRays(99);migrated.setWaterSsrDistance(-100);migrated.setWaterSsrPrecise(true);
+            migrated.setUnderwaterReflectionResolution(9999);migrated.setUnderwaterReflectionDistance(999);
+            migrated.setUnderwaterReflectionInterval(100);
+            migrated.setUnderwaterReflections(false);migrated.setUnderwaterReflectionStrength(999);
+            migrated.setWaterQuality(999);migrated.setWaterAbsorption(-1);migrated.setWaterWaves(999);
+            migrated.setWaterRefraction(-1);migrated.setWaterCaustics(999);migrated.setWaterSsr(false);
             check(migrated.getSunPathTilt() == 0, "Old configs retain the untilted orbit");
+            check(migrated.getSunBloomStrength()==100&&migrated.getSunBloomRadius()==100,"Solar bloom migration defaults");
+            migrated.setSunBloomStrength(999);migrated.setSunBloomRadius(-999);
             check(migrated.getColoredBlend()==2 && migrated.getColoredBrightness()==100
                     && migrated.getColoredSaturation()==130 && migrated.getColoredOverlap()==100,"Bright glass defaults in old configs");
             migrated.setColoredBlend(-1);migrated.setColoredBrightness(900);migrated.setColoredSaturation(-1);migrated.setColoredOverlap(900);
@@ -71,6 +103,17 @@ public final class FogValidation {
             migrated.setVolumetricFog(false);
             migrated.save();
             BrojeConfig restored = BrojeConfig.load(file);
+            check(restored.getFogResolution() == 100, "Fog resolution persists");
+            restored.setFogResolution(-1);
+            check(restored.getFogResolution() == 50, "Fog resolution lower limit");
+            check(restored.getSunBloomStrength()==200&&restored.getSunBloomRadius()==25,"Solar bloom limits and persistence");
+            check(restored.getUnderwaterShaftStrength()==200&&restored.getUnderwaterShaftQuality()==48,"Shaft strength/quality clamp and persist");
+            check(restored.getWaterSsrRays()==5&&restored.getWaterSsrDistance()==16&&restored.isWaterSsrPrecise()
+                    &&restored.getUnderwaterReflectionResolution()==1024&&restored.getUnderwaterReflectionDistance()==128
+                    &&restored.getUnderwaterReflectionInterval()==8,"Reflection optimization settings clamp and persist");
+            check(!restored.isUnderwaterReflections()&&restored.getUnderwaterReflectionStrength()==100,"Underwater reflection switch, clamp and persistence");
+            check(restored.getWaterQuality()==64&&restored.getWaterAbsorption()==10&&restored.getWaterWaves()==200
+                    &&restored.getWaterRefraction()==0&&restored.getWaterCaustics()==200&&!restored.isWaterSsr(),"Water limits and persistence");
             check(restored.getColoredBlend()==0 && restored.getColoredBrightness()==200
                     && restored.getColoredSaturation()==0 && restored.getColoredOverlap()==200,"Colored style persistence");
             check(restored.getSunPathTilt() == 20, "Sun tilt save/load");
@@ -82,7 +125,16 @@ public final class FogValidation {
             BrojeConfig reset = BrojeConfig.load(file);
             reset.setShadowFilter(0);reset.setColoredContrast(300);reset.setFogDensity(3);
             reset.resetToDefaults();
+            check(reset.getFogResolution() == 50, "Reset restores economical fog resolution");
+            check(reset.getWaterSsrRays()==1&&!reset.isWaterSsrPrecise()&&reset.getWaterSsrDistance()==64
+                    &&reset.getUnderwaterReflectionResolution()==256&&reset.getUnderwaterReflectionDistance()==64
+                    &&reset.getUnderwaterReflectionInterval()==2,"Reset reflection optimization options");
+            check(reset.isUnderwaterReflections()&&reset.getUnderwaterReflectionStrength()==20,"Reset underwater reflection");
+            check(reset.getUnderwaterShaftStrength()==100&&reset.getUnderwaterShaftQuality()==24,"Reset independent shaft controls");
+            check(reset.isWaterEnabled()&&reset.isWaterSsr()&&reset.getWaterWaves()==65&&reset.getWaterAbsorption()==100
+                    &&reset.getWaterRefraction()==45&&reset.getWaterCaustics()==70&&reset.getWaterQuality()==32,"Reset water options");
             check(reset.getSunPathTilt() == 0, "Reset solar orbit");
+            check(reset.getSunBloomStrength()==100&&reset.getSunBloomRadius()==100,"Reset solar bloom");
             check(reset.getColoredBlend()==2 && reset.getColoredBrightness()==100 && reset.getColoredSaturation()==130
                     && reset.getColoredOverlap()==100,"Reset all colored controls");
             check(reset.isEnabled() && reset.getShadowFilter()==2 && reset.getColoredContrast()==100 && reset.getFogDensity()==45

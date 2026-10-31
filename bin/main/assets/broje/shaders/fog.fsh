@@ -10,11 +10,13 @@ layout(std140, binding = 0) uniform BrojeFogUniforms {
     vec4 BrojeSun;          // world sun direction, daylight strength
     vec4 BrojeShaft;        // light shafts on, sun lobe strength, map distortion, opaque depth snapshot valid
     vec4 BrojeShaftRange;   // shadow distance in blocks, unused
+    vec4 BrojeFogTarget;    // current render target width/height
     mat4 BrojeShadowMatrix; // camera-relative position -> sun map clip space
 };
 layout(binding = 1) uniform sampler2D Sampler0;
 layout(binding = 2) uniform sampler2D Sampler1; // sun depth map
 layout(binding = 3) uniform sampler2D Sampler2; // world depth before translucent terrain
+layout(binding = 4) uniform sampler2D Sampler3; // reduced fog: transmittance, sunlight weight, ray end
 layout(location = 0) out vec4 fragColor;
 
 // Periodic, smooth 3D value noise, anchored in world space, never in screen space.
@@ -41,6 +43,7 @@ float heightDensity(float worldY) {
 }
 
 float densityAt(vec3 worldPosition) {
+    if (BrojeVolume.x <= 0.0) return heightDensity(worldPosition.y);
     vec3 wind = vec3(BrojeVolume.y, 0.0, BrojeVolume.y * 0.5);
     vec3 p = worldPosition + wind;
     float banks = noise3(p / 64.0) * 0.72 + noise3(p / 32.0 + vec3(13,7,23)) * 0.28;
@@ -86,7 +89,7 @@ vec4 viewAt(vec2 ndc, float depth) {
 void main() {
     if (BrojeSun.w < -1.5) { fragColor = vec4(1, 0.15, 0.05, 1); return; }
     ivec2 size = textureSize(Sampler0, 0);
-    ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), size - 1);
+    ivec2 pixel = clamp(ivec2(gl_FragCoord.xy / BrojeFogTarget.xy * vec2(size)), ivec2(0), size - 1);
     // Exact nearest depth preserves fences, leaves and silhouettes; no depth filtering.
     float depth = texelFetch(Sampler0, pixel, 0).r;
     vec2 screenUV = (vec2(pixel) + 0.5) / vec2(size);
@@ -123,14 +126,54 @@ void main() {
     // Every sample stays strictly in front of the nearest visible opaque/cutout surface.
     float rayEnd = min(max(surfaceDistance - 0.02, 0.0), BrojeAtmosphere.w);
     float rayBegin = min(max(BrojeFog.y, 0.0), rayEnd);
-    if (rayEnd <= rayBegin || BrojeFog.x <= 0.0) { fragColor = vec4(0); return; }
+    if (rayEnd <= rayBegin || BrojeFog.x <= 0.0) {
+#ifdef FOG_REDUCED
+        fragColor = vec4(1.0, 0.0, rayEnd, 1.0);
+#else
+        fragColor = vec4(0);
+#endif
+        return;
+    }
 
     float transmittance = 1.0;
     float sunlit = 0.0; // in-scattering weight of the samples the sun actually reaches
-    if (BrojeVolume.z > 0.5) {
+    bool resolved = false;
+#ifdef FOG_RESOLVE
+    // Bilateral reconstruction of the two integrated scalars. Phase and scattering
+    // color are still evaluated at full resolution, keeping the solar glow sharp.
+    ivec2 fogSize = textureSize(Sampler3, 0);
+    vec2 fogPixel = screenUV * vec2(fogSize) - 0.5;
+    ivec2 base = ivec2(floor(fogPixel));
+    vec2 fraction = fract(fogPixel);
+    vec2 integrated = vec2(0.0);
+    float weightSum = 0.0;
+    float tolerance = max(0.25, rayEnd * 0.015);
+    for (int y = 0; y < 2; ++y) {
+        for (int x = 0; x < 2; ++x) {
+            vec3 sampleFog = texelFetch(Sampler3, clamp(base + ivec2(x,y), ivec2(0), fogSize - 1), 0).rgb;
+            vec2 weightXY = mix(1.0 - fraction, fraction, vec2(x,y));
+            float weight = weightXY.x * weightXY.y * max(0.0, 1.0 - abs(sampleFog.z - rayEnd) / tolerance);
+            integrated += sampleFog.xy * weight;
+            weightSum += weight;
+        }
+    }
+    // Thin fences/leaves may have no matching reduced pixel: integrate those rays
+    // at their exact depth instead of smearing the background fog over the edge.
+    resolved = weightSum > 1e-5;
+    if (resolved) {
+        transmittance = clamp(integrated.x / weightSum, 0.0, 1.0);
+        sunlit = clamp(integrated.y / weightSum, 0.0, 1.0 - transmittance);
+    }
+#endif
+    if (!resolved && BrojeVolume.z > 0.5 && (BrojeVolume.x > 0.0 || BrojeShaft.x > 0.5)) {
         int steps = clamp(int(BrojeVolume.w), 16, 64);
         // Short rays need fewer steps; the configured count is a strict upper bound.
         steps = min(steps, max(4, int(ceil((rayEnd - rayBegin) / 3.0))));
+#ifdef FOG_RESOLVE
+        // Sparse edge lanes must not force an entire GPU wave through 32/64 steps.
+        // Four segments retain the exact surface limit without a full second march.
+        steps = min(steps, 4);
+#endif
         float stepLength = (rayEnd - rayBegin) / float(steps);
         // Stable spatial jitter reduces sample bands without animated grain/history ghosts.
         float jitter = fract(52.9829189 * fract(dot(vec2(pixel), vec2(0.06711056, 0.00583715))));
@@ -145,12 +188,16 @@ void main() {
             sunlit += transmittance * (1.0 - segment) * lit;
             transmittance *= segment;
         }
-    } else {
+    } else if (!resolved) {
         float opticalDepth = BrojeFog.x * heightIntegral(BrojeCamera.xyz, rayDirection, rayBegin, rayEnd);
         transmittance = exp(-clamp(opticalDepth, 0.0, 80.0));
         sunlit = 1.0 - transmittance;
     }
 
+#ifdef FOG_REDUCED
+    fragColor = vec4(transmittance, sunlit, rayEnd, 1.0);
+    return;
+#endif
     float cosine = clamp(dot(rayDirection, normalize(BrojeSun.xyz)), -1.0, 1.0);
     // Two Henyey-Greenstein lobes: a broad haze and a tight glow around the sun.
     float broad = (1.0 - 0.45 * 0.45) / pow(max(1.0 + 0.45 * 0.45 - 0.9 * cosine, 0.05), 1.5);

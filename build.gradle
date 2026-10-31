@@ -91,7 +91,9 @@ tasks.register('prepareFogCheck') {
             into 'run-fog-check/saves/FogCheck'
             exclude 'session.lock'
         }
-        file('run-fog-check/options.txt').text = 'lang:en_us\nrenderDistance:10\nguiScale:2\nmaxFps:60\npauseOnLostFocus:false\n'
+        file('run-fog-check/options.txt').text = project.hasProperty('fogPerformanceCheck')
+                ? 'lang:en_us\nrenderDistance:10\nguiScale:2\nmaxFps:260\nenableVsync:false\npauseOnLostFocus:false\n'
+                : 'lang:en_us\nrenderDistance:10\nguiScale:2\nmaxFps:60\npauseOnLostFocus:false\n'
     }
 }
 
@@ -102,8 +104,11 @@ loom {
             name 'Broje fog integration check'
             runDir 'run-fog-check'
             if (project.hasProperty('atmosphereCheck')) vmArg '-Dbroje.atmosphereCheck=true'
+            if (project.hasProperty('fogPerformanceCheck')) vmArg '-Dbroje.fogPerformanceCheck=true'
             vmArg "-Dfabric.addMods=${layout.buildDirectory.file('fog-check/broje-fog-check.jar').get().asFile.absolutePath}"
-            programArgs '--quickPlaySingleplayer', 'FogCheck', '--width', '960', '--height', '600'
+            programArgs '--quickPlaySingleplayer', 'FogCheck', '--width',
+                    project.hasProperty('fogPerformanceCheck') ? '1920' : '960', '--height',
+                    project.hasProperty('fogPerformanceCheck') ? '1080' : '600'
         }
     }
 }
@@ -119,6 +124,18 @@ tasks.register('verifyFogCaptures', JavaExec) {
     classpath = sourceSets.validation.runtimeClasspath
     mainClass = 'dev.broje.check.FogCaptureValidation'
     args layout.projectDirectory.dir('run-fog-check/screenshots').asFile.absolutePath
+}
+
+tasks.register('verifyFogPerformance', JavaExec) {
+    group = 'verification'
+    description = 'Compare 50/75/100% fog captures and uncapped frame times. Use -PfogPerformanceCheck.'
+    dependsOn runFogCheck
+    doFirst {
+        if (!project.hasProperty('fogPerformanceCheck')) throw new GradleException('Use verifyFogPerformance -PfogPerformanceCheck')
+    }
+    classpath = sourceSets.validation.runtimeClasspath
+    mainClass = 'dev.broje.check.FogPerformanceValidation'
+    args layout.projectDirectory.dir('run-fog-check').asFile.absolutePath
 }
 
 tasks.register('verifyAtmosphereCaptures', JavaExec) {
@@ -175,4 +192,45 @@ tasks.register('verifyShadowCaptures', JavaExec) {
     classpath = sourceSets.validation.runtimeClasspath
     mainClass = 'dev.broje.check.ShadowCaptureValidation'
     args layout.projectDirectory.dir('run-shadow-check/screenshots').asFile.absolutePath
+}
+
+tasks.register('prepareWaterCheck') {
+    doLast {
+        copy { from 'run/saves/Новый мир'; into 'run-water-check/saves/WaterCheck'; exclude 'session.lock' }
+        file('run-water-check/options.txt').text = 'lang:ru_ru\nrenderDistance:10\nguiScale:2\nmaxFps:260\nenableVsync:false\npauseOnLostFocus:false\n'
+    }
+}
+loom.runs {
+    waterCheck {
+        client()
+        name 'Broje water integration check'
+        runDir 'run-water-check'
+        vmArg "-Dfabric.addMods=${layout.buildDirectory.file('fog-check/broje-fog-check.jar').get().asFile.absolutePath}"
+        vmArg '-Dbroje.waterCheck=true'
+        if(project.hasProperty('waterFocusCheck'))vmArg '-Dbroje.waterFocusCheck=true'
+        if(project.hasProperty('waterShoreCheck'))vmArg '-Dbroje.waterShoreCheck=true'
+        if(project.hasProperty('waterMotionCheck')) {
+            vmArg '-Dbroje.waterMotionCheck=true'
+            vmArg "-Dbroje.waterMotionOutput=${project.findProperty('motionTag') ?: 'motion'}"
+        }
+        programArgs '--quickPlaySingleplayer','WaterCheck','--width','1100','--height','720'
+    }
+}
+tasks.named('runWaterCheck') { dependsOn fogCheckMod,prepareWaterCheck }
+tasks.register('verifyWaterCaptures', JavaExec) {
+    group = 'verification'
+    description = 'Verify real water material, SSR hits, refraction, waves, underwater lighting and fallback.'
+    dependsOn runWaterCheck
+    classpath = sourceSets.validation.runtimeClasspath
+    mainClass = 'dev.broje.check.WaterCaptureValidation'
+    args layout.projectDirectory.dir('run-water-check/screenshots').asFile.absolutePath
+}
+
+tasks.register('verifyWaterMotion', JavaExec) {
+    group = 'verification'
+    description = 'Verify reflection stability in stationary, camera and wave sequences. Use -PwaterMotionCheck.'
+    dependsOn runWaterCheck
+    classpath = sourceSets.validation.runtimeClasspath
+    mainClass = 'dev.broje.check.WaterMotionValidation'
+    args layout.projectDirectory.dir("run-water-check/screenshots/${project.findProperty('motionTag') ?: 'motion'}").asFile.absolutePath
 }

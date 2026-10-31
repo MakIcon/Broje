@@ -11,6 +11,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(SkyRenderer.class)
 public abstract class SkyRendererMixin {
+    @Inject(method="renderSun",at=@At("HEAD"),cancellable=true)
+    private void broje$roundSun(float brightness,PoseStack pose,CallbackInfo ci) {
+        if(dev.broje.render.SunRenderer.render(brightness,pose))ci.cancel();
+    }
     @Inject(method = "renderSunMoonAndStars", at = @At("HEAD"))
     private void broje$tiltOrbit(PoseStack pose, float sun, float moon, float stars,
                                 net.minecraft.world.level.MoonPhase phase, float rain, float brightness, CallbackInfo ci) {

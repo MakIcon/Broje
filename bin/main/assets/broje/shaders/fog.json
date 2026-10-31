@@ -12,8 +12,9 @@
       { "name": "BrojeSun", "type": "float", "count": 4 },
       { "name": "BrojeShaft", "type": "float", "count": 4 },
       { "name": "BrojeShaftRange", "type": "float", "count": 4 },
+      { "name": "BrojeFogTarget", "type": "float", "count": 4 },
       { "name": "BrojeShadowMatrix", "type": "matrix4x4", "count": 16 }
     ]
   }],
-  "samplers": [{ "name": "Sampler0" }, { "name": "Sampler1" }, { "name": "Sampler2" }]
+  "samplers": [{ "name": "Sampler0" }, { "name": "Sampler1" }, { "name": "Sampler2" }, { "name": "Sampler3" }]
 }

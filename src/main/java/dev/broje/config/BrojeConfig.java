@@ -31,6 +31,7 @@ public final class BrojeConfig {
     private int fogWind = 15;
     private int fogDistance = 256;
     private int fogQuality = 32;
+    private int fogResolution = 50;
     private boolean shadowsEnabled = true;
     private int shadowResolution = 2048;
     private int shadowDistance = 64;
@@ -39,6 +40,8 @@ public final class BrojeConfig {
     private int shadowSamples = 16;
     private int shadowFilter = 2;
     private int sunPathTilt;
+    private int sunBloomStrength = 100;
+    private int sunBloomRadius = 100;
     private boolean foliageShadows;
     private boolean coloredShadows = true;
     private int coloredContrast = 100;
@@ -54,6 +57,24 @@ public final class BrojeConfig {
     private int bounceStrength = 100;
     private int lightColor = 60;
     private int lightingQuality = 16;
+    private boolean waterEnabled = true;
+    private boolean waterSsr = true;
+    private boolean underwaterShafts = true;
+    private int underwaterShaftStrength = 100;
+    private int underwaterShaftQuality = 24;
+    private boolean underwaterReflections = true;
+    private int underwaterReflectionStrength = 20;
+    private int waterSsrRays = 1;
+    private int waterSsrDistance = 64;
+    private boolean waterSsrPrecise;
+    private int underwaterReflectionResolution = 256;
+    private int underwaterReflectionDistance = 64;
+    private int underwaterReflectionInterval = 2;
+    private int waterWaves = 65;
+    private int waterRefraction = 45;
+    private int waterAbsorption = 100;
+    private int waterCaustics = 70;
+    private int waterQuality = 32;
 
     private BrojeConfig(Path file) {
         this.file = file;
@@ -91,6 +112,7 @@ public final class BrojeConfig {
         setFogWind(readInt(json, "fogWind", 15));
         setFogDistance(readInt(json, "fogDistance", 256));
         setFogQuality(readInt(json, "fogQuality", 32));
+        setFogResolution(readInt(json, "fogResolution", 50));
         shadowsEnabled = readBoolean(json, "shadowsEnabled", true);
         setShadowResolution(readInt(json, "shadowResolution", 2048));
         setShadowDistance(readInt(json, "shadowDistance", 64));
@@ -99,6 +121,8 @@ public final class BrojeConfig {
         setShadowSamples(readInt(json, "shadowSamples", 16));
         setShadowFilter(readInt(json, "shadowFilter", 2));
         setSunPathTilt(readInt(json, "sunPathTilt", 0));
+        setSunBloomStrength(readInt(json, "sunBloomStrength", 100));
+        setSunBloomRadius(readInt(json, "sunBloomRadius", 100));
         foliageShadows = readBoolean(json, "foliageShadows", false);
         coloredShadows = readBoolean(json, "coloredShadows", true);
         setColoredContrast(readInt(json, "coloredContrast", 100));
@@ -114,6 +138,24 @@ public final class BrojeConfig {
         setBounceStrength(readInt(json, "bounceStrength", 100));
         setLightColor(readInt(json, "lightColor", 60));
         setLightingQuality(readInt(json, "lightingQuality", 16));
+        waterEnabled = readBoolean(json, "waterEnabled", true);
+        waterSsr = readBoolean(json, "waterSsr", true);
+        underwaterShafts = readBoolean(json, "underwaterShafts", true);
+        setUnderwaterShaftStrength(readInt(json, "underwaterShaftStrength", 100));
+        setUnderwaterShaftQuality(readInt(json, "underwaterShaftQuality", 24));
+        underwaterReflections = readBoolean(json, "underwaterReflections", true);
+        setUnderwaterReflectionStrength(readInt(json, "underwaterReflectionStrength", 20));
+        setWaterSsrRays(readInt(json, "waterSsrRays", 1));
+        setWaterSsrDistance(readInt(json, "waterSsrDistance", 64));
+        waterSsrPrecise = readBoolean(json, "waterSsrPrecise", false);
+        setUnderwaterReflectionResolution(readInt(json, "underwaterReflectionResolution", 256));
+        setUnderwaterReflectionDistance(readInt(json, "underwaterReflectionDistance", 64));
+        setUnderwaterReflectionInterval(readInt(json, "underwaterReflectionInterval", 2));
+        setWaterWaves(readInt(json, "waterWaves", 65));
+        setWaterRefraction(readInt(json, "waterRefraction", 45));
+        setWaterAbsorption(readInt(json, "waterAbsorption", 100));
+        setWaterCaustics(readInt(json, "waterCaustics", 70));
+        setWaterQuality(readInt(json, "waterQuality", 32));
     }
 
     /** Every setting back to its default; the master switch stays as it is. */
@@ -172,6 +214,8 @@ public final class BrojeConfig {
     public void setFogDistance(int value) { fogDistance = clamp(value, 64, 512); }
     public int getFogQuality() { return fogQuality; }
     public void setFogQuality(int value) { fogQuality = value <= 16 ? 16 : value <= 32 ? 32 : value <= 48 ? 48 : 64; }
+    public int getFogResolution() { return fogResolution; }
+    public void setFogResolution(int value) { fogResolution = value <= 50 ? 50 : value <= 75 ? 75 : 100; }
     public boolean isShadowsEnabled() { return shadowsEnabled; }
     public void setShadowsEnabled(boolean value) { shadowsEnabled = value; }
     public int getShadowResolution() { return shadowResolution; }
@@ -187,6 +231,10 @@ public final class BrojeConfig {
     /** 0 sharp, 1 crisp, 2 soft PCF, 3 smooth tent, 4 contact hardening. */
     public int getShadowFilter() { return shadowFilter; }
     public int getSunPathTilt() { return sunPathTilt; }
+    public int getSunBloomStrength() { return sunBloomStrength; }
+    public void setSunBloomStrength(int value) { sunBloomStrength=clamp(value,0,200); }
+    public int getSunBloomRadius() { return sunBloomRadius; }
+    public void setSunBloomRadius(int value) { sunBloomRadius=clamp(value,25,200); }
     public void setSunPathTilt(int value) { sunPathTilt = clamp(value, -60, 60); }
     public void setShadowFilter(int value) { shadowFilter = clamp(value, 0, 4); }
     public int getShadowSamples() { return shadowSamples; }
@@ -235,6 +283,7 @@ public final class BrojeConfig {
         json.addProperty("fogWind", fogWind);
         json.addProperty("fogDistance", fogDistance);
         json.addProperty("fogQuality", fogQuality);
+        json.addProperty("fogResolution", fogResolution);
         json.addProperty("shadowsEnabled", shadowsEnabled);
         json.addProperty("shadowResolution", shadowResolution);
         json.addProperty("shadowDistance", shadowDistance);
@@ -243,6 +292,8 @@ public final class BrojeConfig {
         json.addProperty("shadowSamples", shadowSamples);
         json.addProperty("shadowFilter", shadowFilter);
         json.addProperty("sunPathTilt", sunPathTilt);
+        json.addProperty("sunBloomStrength", sunBloomStrength);
+        json.addProperty("sunBloomRadius", sunBloomRadius);
         json.addProperty("foliageShadows", foliageShadows);
         json.addProperty("coloredShadows", coloredShadows);
         json.addProperty("coloredContrast", coloredContrast);
@@ -258,8 +309,63 @@ public final class BrojeConfig {
         json.addProperty("bounceStrength", bounceStrength);
         json.addProperty("lightColor", lightColor);
         json.addProperty("lightingQuality", lightingQuality);
+        json.addProperty("waterEnabled", waterEnabled);
+        json.addProperty("waterSsr", waterSsr);
+        json.addProperty("underwaterShafts", underwaterShafts);
+        json.addProperty("underwaterShaftStrength", underwaterShaftStrength);
+        json.addProperty("underwaterShaftQuality", underwaterShaftQuality);
+        json.addProperty("underwaterReflections", underwaterReflections);
+        json.addProperty("underwaterReflectionStrength", underwaterReflectionStrength);
+        json.addProperty("waterSsrRays", waterSsrRays);
+        json.addProperty("waterSsrDistance", waterSsrDistance);
+        json.addProperty("waterSsrPrecise", waterSsrPrecise);
+        json.addProperty("underwaterReflectionResolution", underwaterReflectionResolution);
+        json.addProperty("underwaterReflectionDistance", underwaterReflectionDistance);
+        json.addProperty("underwaterReflectionInterval", underwaterReflectionInterval);
+        json.addProperty("waterWaves", waterWaves);
+        json.addProperty("waterRefraction", waterRefraction);
+        json.addProperty("waterAbsorption", waterAbsorption);
+        json.addProperty("waterCaustics", waterCaustics);
+        json.addProperty("waterQuality", waterQuality);
         return json;
     }
+
+    public boolean isWaterEnabled() { return waterEnabled; }
+    public int getWaterSsrRays() { return waterSsrRays; }
+    public void setWaterSsrRays(int value) { waterSsrRays = value<=1?1:value<=3?3:5; }
+    public int getWaterSsrDistance() { return waterSsrDistance; }
+    public void setWaterSsrDistance(int value) { waterSsrDistance = clamp(value, 16, 128); }
+    public boolean isWaterSsrPrecise() { return waterSsrPrecise; }
+    public void setWaterSsrPrecise(boolean value) { waterSsrPrecise = value; }
+    public int getUnderwaterReflectionResolution() { return underwaterReflectionResolution; }
+    public void setUnderwaterReflectionResolution(int value) { underwaterReflectionResolution = value<=128?128:value<=256?256:value<=512?512:1024; }
+    public int getUnderwaterReflectionDistance() { return underwaterReflectionDistance; }
+    public void setUnderwaterReflectionDistance(int value) { underwaterReflectionDistance = clamp(value, 16, 128); }
+    public int getUnderwaterReflectionInterval() { return underwaterReflectionInterval; }
+    public void setUnderwaterReflectionInterval(int value) { underwaterReflectionInterval = value<=1?1:value<=2?2:value<=4?4:8; }
+    public void setWaterEnabled(boolean value) { waterEnabled = value; }
+    public boolean isWaterSsr() { return waterSsr; }
+    public void setWaterSsr(boolean value) { waterSsr = value; }
+    public boolean isUnderwaterShafts() { return underwaterShafts; }
+    public int getUnderwaterShaftStrength() { return underwaterShaftStrength; }
+    public void setUnderwaterShaftStrength(int value) { underwaterShaftStrength=clamp(value,0,200); }
+    public int getUnderwaterShaftQuality() { return underwaterShaftQuality; }
+    public void setUnderwaterShaftQuality(int value) { underwaterShaftQuality=value<=12?12:value<=24?24:value<=32?32:48; }
+    public boolean isUnderwaterReflections() { return underwaterReflections; }
+    public void setUnderwaterReflections(boolean value) { underwaterReflections = value; }
+    public int getUnderwaterReflectionStrength() { return underwaterReflectionStrength; }
+    public void setUnderwaterReflectionStrength(int value) { underwaterReflectionStrength = clamp(value, 0, 100); }
+    public void setUnderwaterShafts(boolean value) { underwaterShafts = value; }
+    public int getWaterWaves() { return waterWaves; }
+    public void setWaterWaves(int value) { waterWaves = clamp(value, 0, 200); }
+    public int getWaterRefraction() { return waterRefraction; }
+    public void setWaterRefraction(int value) { waterRefraction = clamp(value, 0, 100); }
+    public int getWaterAbsorption() { return waterAbsorption; }
+    public void setWaterAbsorption(int value) { waterAbsorption = clamp(value, 10, 200); }
+    public int getWaterCaustics() { return waterCaustics; }
+    public void setWaterCaustics(int value) { waterCaustics = clamp(value, 0, 200); }
+    public int getWaterQuality() { return waterQuality; }
+    public void setWaterQuality(int value) { waterQuality = value <= 16 ? 16 : value <= 32 ? 32 : 64; }
 
     public void save() {
         Path temporaryFile = file.resolveSibling(file.getFileName() + ".tmp");

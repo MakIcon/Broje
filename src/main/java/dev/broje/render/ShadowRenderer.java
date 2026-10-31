@@ -253,9 +253,13 @@ public final class ShadowRenderer {
         Minecraft mc = Minecraft.getInstance();
         GameRenderState state = mc.gameRenderer.getGameRenderState();
         CameraRenderState camera = state.levelRenderState.cameraRenderState;
+        WaterRenderer.prepare(state);
+        try { if (WaterRenderer.wanted(state)) installShaderGetter(); }
+        catch (ReflectiveOperationException exception) { BrojeClient.LOGGER.error("Could not install water material", exception); }
         if (failed || config == null || !config.isEnabled() || !(casting(state, config) || config.isLightingEnabled())
                 || mc.level == null || !Level.OVERWORLD.equals(mc.level.dimension())
-                || camera.fogType != FogType.NONE || camera.entityRenderState.doesMobEffectBlockSky) return;
+                || (camera.fogType != FogType.NONE && !(camera.fogType == FogType.WATER && WaterRenderer.wanted(state)))
+                || camera.entityRenderState.doesMobEffectBlockSky) return;
         if (WorldRenderer.getInstance() == null || WorldRenderer.getInstance().getSectionGrid() == null) return;
         try {
             if (instance == null) instance = new ShadowRenderer();
@@ -269,6 +273,7 @@ public final class ShadowRenderer {
     }
 
     private static GraphicsPipeline terrainShader(TerrainRenderType type) {
+        if (type == TerrainRenderType.TRANSLUCENT && WaterRenderer.terrainPipeline() != null) return WaterRenderer.terrainPipeline();
         if (!active || type == TerrainRenderType.TRANSLUCENT) return vulkanModShaders.apply(type);
         return type == TerrainRenderType.CUTOUT ? instance.cutoutPipeline : instance.solidPipeline;
     }

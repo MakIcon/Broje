@@ -97,6 +97,48 @@ public final class BrojeSettings {
                                 .setTranslator(value -> Component.translatable("broje.lighting_quality." + value))
                                 .setTooltip(value -> Component.translatable("broje.options.lighting_quality.tooltip"))
                 })
+        }), new OptionPage(Component.translatable("broje.page.sun").getString(), new OptionBlock[] {
+                new OptionBlock("",new Option<?>[] {
+                        range("sun_bloom_strength",0,200,5,true,config::setSunBloomStrength,config::getSunBloomStrength),
+                        range("sun_bloom_radius",25,200,5,true,config::setSunBloomRadius,config::getSunBloomRadius)
+                })
+        }), new OptionPage(Component.translatable("broje.page.water").getString(), new OptionBlock[] {
+                new OptionBlock("", new Option<?>[] {
+                        toggle("water", config::setWaterEnabled, config::isWaterEnabled),
+                        toggle("water_ssr", config::setWaterSsr, config::isWaterSsr),
+                        toggle("underwater_reflections", config::setUnderwaterReflections, config::isUnderwaterReflections),
+                        range("underwater_reflection_strength", 0, 100, 5, true, config::setUnderwaterReflectionStrength, config::getUnderwaterReflectionStrength),
+                        range("water_waves", 0, 200, 5, true, config::setWaterWaves, config::getWaterWaves),
+                        range("water_refraction", 0, 100, 5, true, config::setWaterRefraction, config::getWaterRefraction),
+                        range("water_absorption", 10, 200, 5, true, config::setWaterAbsorption, config::getWaterAbsorption),
+                        range("water_caustics", 0, 200, 5, true, config::setWaterCaustics, config::getWaterCaustics),
+                        toggle("underwater_shafts", config::setUnderwaterShafts, config::isUnderwaterShafts),
+                        range("underwater_shaft_strength",0,200,5,true,config::setUnderwaterShaftStrength,config::getUnderwaterShaftStrength)
+                })
+        }), new OptionPage(Component.translatable("broje.page.reflections").getString(), new OptionBlock[] {
+                new OptionBlock("", new Option<?>[] {
+                        new CyclingOption<>(Component.translatable("broje.options.underwater_shaft_quality"),new Integer[]{12,24,32,48},
+                                config::setUnderwaterShaftQuality,config::getUnderwaterShaftQuality)
+                                .setTranslator(value->Component.literal(value+""))
+                                .setTooltip(value->Component.translatable("broje.options.underwater_shaft_quality.tooltip")),
+                        new CyclingOption<>(Component.translatable("broje.options.water_quality"),new Integer[] {16,32,64},
+                                config::setWaterQuality,config::getWaterQuality)
+                                .setTranslator(value -> Component.literal(value + ""))
+                                .setTooltip(value -> Component.translatable("broje.options.water_quality.tooltip")),
+                        new CyclingOption<>(Component.translatable("broje.options.water_ssr_rays"),new Integer[]{1,3,5},config::setWaterSsrRays,config::getWaterSsrRays)
+                                .setTranslator(value->Component.literal(value+""))
+                                .setTooltip(value->Component.translatable("broje.options.water_ssr_rays.tooltip")),
+                        range("water_ssr_distance",16,128,8,false,config::setWaterSsrDistance,config::getWaterSsrDistance),
+                        toggle("water_ssr_precise",config::setWaterSsrPrecise,config::isWaterSsrPrecise),
+                        new CyclingOption<>(Component.translatable("broje.options.underwater_reflection_resolution"),new Integer[]{128,256,512,1024},
+                                config::setUnderwaterReflectionResolution,config::getUnderwaterReflectionResolution).setTranslator(value->Component.literal(value+" px"))
+                                .setTooltip(value->Component.translatable("broje.options.underwater_reflection_resolution.tooltip")),
+                        range("underwater_reflection_distance",16,128,16,false,config::setUnderwaterReflectionDistance,config::getUnderwaterReflectionDistance),
+                        new CyclingOption<>(Component.translatable("broje.options.underwater_reflection_interval"),new Integer[]{1,2,4,8},
+                                config::setUnderwaterReflectionInterval,config::getUnderwaterReflectionInterval)
+                                .setTranslator(value->Component.translatable("broje.reflection_interval."+value))
+                                .setTooltip(value->Component.translatable("broje.options.underwater_reflection_interval.tooltip"))
+                })
         }), new OptionPage(Component.translatable("broje.page.fog").getString(), new OptionBlock[] {
                 new OptionBlock("", new Option<?>[] { fog, volume,
                         range("density", 0, 100, 1, true, config::setFogDensity, config::getFogDensity),
@@ -106,7 +148,11 @@ public final class BrojeSettings {
                         range("variation", 0, 100, 1, true, config::setFogVariation, config::getFogVariation),
                         range("wind", 0, 100, 1, true, config::setFogWind, config::getFogWind),
                         toggle("light_shafts", config::setLightShafts, config::isLightShafts),
-                        range("distance", 64, 512, 16, false, config::setFogDistance, config::getFogDistance), quality })
+                        range("distance", 64, 512, 16, false, config::setFogDistance, config::getFogDistance),
+                        new CyclingOption<>(Component.translatable("broje.options.fog_resolution"), new Integer[] {50,75,100},
+                                config::setFogResolution, config::getFogResolution)
+                                .setTranslator(value -> Component.literal(value + "%"))
+                                .setTooltip(value -> Component.translatable("broje.options.fog_resolution.tooltip")), quality })
         })));
         return pages;
     }

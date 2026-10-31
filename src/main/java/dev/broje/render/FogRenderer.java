@@ -51,38 +51,25 @@ public final class FogRenderer {
     private final Map<VulkanImage, Framebuffer> colorTargets = new IdentityHashMap<>();
     private final Matrix4f inverseProjection = new Matrix4f();
     private final Matrix4f inverseView = new Matrix4f();
-    private GraphicsPipeline pipeline;
+    private final GraphicsPipeline pipeline, reducedPipeline, resolvePipeline;
+    private final MappedBuffer shadowIdentity = new MappedBuffer(64);
     private final GraphicsPipeline copyPipeline;
     private final DepthSampler depthSampler = new DepthSampler();
     private final DepthSampler copySampler = new DepthSampler();
-    private Framebuffer opaqueTarget;
-    private RenderPass fogPass, copyPass;
+    private Framebuffer opaqueTarget, reducedTarget;
+    private RenderPass fogPass, copyPass, reducedPass;
     private boolean firstFrame = true;
 
     private FogRenderer() {
         uniforms.put("BrojeInverseProjection", new MappedBuffer(64));
         uniforms.put("BrojeInverseView", new MappedBuffer(64));
-        for (String name : new String[] {"BrojeCamera", "BrojeFog", "BrojeVolume", "BrojeAtmosphere", "BrojeSun", "BrojeShaft", "BrojeShaftRange"}) {
+        for (String name : new String[] {"BrojeCamera", "BrojeFog", "BrojeVolume", "BrojeAtmosphere", "BrojeSun", "BrojeShaft", "BrojeShaftRange", "BrojeFogTarget"}) {
             uniforms.put(name, new MappedBuffer(16));
         }
-        Pipeline.Builder builder = new Pipeline.Builder(CustomVertexFormat.NONE, "broje:fog");
-        // The sun map's matrix is owned by the shadow pass of the same frame.
-        MappedBuffer identity = new MappedBuffer(64);
-        new Matrix4f().get(identity.buffer);
-        builder.setUniformSupplierGetter(info -> uniforms.containsKey(info.name) ? () -> uniforms.get(info.name) : () -> {
-            MappedBuffer shared = ShadowRenderer.uniform(info.name);
-            return shared != null ? shared : identity;
-        });
-        builder.applyConfig(PipelineConfig.fromJson("fog", JsonParser.parseString(resource("fog.json")).getAsJsonObject()));
-        // D24S8 attachment views contain both aspects. A sampled descriptor MUST select
-        // only depth; using the attachment view returns undefined values on Vulkan.
-        builder.getImageDescriptors().set(0, depthSampler);
-        builder.getImageDescriptors().set(1, new SunMapSampler());
-        builder.getImageDescriptors().set(2, new OpaqueSampler());
-        builder.setShaderSrc(SPIRVUtils.ShaderKind.VERTEX_SHADER, resource("fog.vsh"));
-        builder.setShaderSrc(SPIRVUtils.ShaderKind.FRAGMENT_SHADER, resource("fog.fsh"));
-        pipeline = builder.createGraphicsPipeline();
-        pipeline.getBuffers().forEach(buffer -> { buffer.setUseGlobalBuffer(true); buffer.setUpdate(true); });
+        new Matrix4f().get(shadowIdentity.buffer);
+        pipeline = createFogPipeline("direct", "");
+        reducedPipeline = createFogPipeline("reduced", "#define FOG_REDUCED\n");
+        resolvePipeline = createFogPipeline("resolve", "#define FOG_RESOLVE\n");
         Pipeline.Builder copy = new Pipeline.Builder(CustomVertexFormat.NONE, "broje:depth_copy");
         copy.setUniformSupplierGetter(info -> () -> uniforms.get("BrojeCamera"));
         copy.applyConfig(PipelineConfig.fromJson("depth_copy", JsonParser.parseString(resource("depth_copy.json")).getAsJsonObject()));
@@ -91,12 +78,37 @@ public final class FogRenderer {
         copy.setShaderSrc(SPIRVUtils.ShaderKind.FRAGMENT_SHADER, resource("depth_copy.fsh"));
         copyPipeline = copy.createGraphicsPipeline();
         copyPipeline.getBuffers().forEach(buffer -> { buffer.setUseGlobalBuffer(true); buffer.setUpdate(true); });
-        Renderer.getInstance().addOnResizeCallback(() -> {
-            depthSampler.close();
-            copySampler.close();
-            colorTargets.clear();
+        Renderer.getInstance().addOnResizeCallback(this::destroyTargets);
+        BrojeClient.LOGGER.info("Broje fog pipelines compiled: height fog, reduced 3D integration and depth-aware resolve.");
+    }
+
+    private GraphicsPipeline createFogPipeline(String name, String defines) {
+        Pipeline.Builder builder = new Pipeline.Builder(CustomVertexFormat.NONE, "broje:fog_" + name);
+        // The sun map's matrix is owned by the shadow pass of the same frame.
+        builder.setUniformSupplierGetter(info -> uniforms.containsKey(info.name) ? () -> uniforms.get(info.name) : () -> {
+            MappedBuffer shared = ShadowRenderer.uniform(info.name);
+            return shared != null ? shared : shadowIdentity;
         });
-        BrojeClient.LOGGER.info("Broje fog pipeline compiled: depth-limited height fog and 3D ray marching.");
+        builder.applyConfig(PipelineConfig.fromJson("fog", JsonParser.parseString(resource("fog.json")).getAsJsonObject()));
+        // Combined depth/stencil attachment views must never be sampled directly.
+        builder.getImageDescriptors().set(0, depthSampler);
+        builder.getImageDescriptors().set(1, new SunMapSampler());
+        builder.getImageDescriptors().set(2, new OpaqueSampler());
+        builder.getImageDescriptors().set(3, new ImageDescriptor(4, "sampler2D", "Sampler3", 11, VK10.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+            @Override public VulkanImage getImage() {
+                // Do not bind the reduced image while writing to that same image.
+                return name.equals("resolve") && reducedTarget != null
+                        ? reducedTarget.getColorAttachment() : VTextureSelector.getWhiteTexture();
+            }
+        });
+        builder.setShaderSrc(SPIRVUtils.ShaderKind.VERTEX_SHADER, resource("fog.vsh"));
+        String fragment = resource("fog.fsh");
+        int versionEnd = fragment.indexOf('\n') + 1;
+        builder.setShaderSrc(SPIRVUtils.ShaderKind.FRAGMENT_SHADER,
+                fragment.substring(0, versionEnd) + defines + fragment.substring(versionEnd));
+        GraphicsPipeline result = builder.createGraphicsPipeline();
+        result.getBuffers().forEach(buffer -> { buffer.setUseGlobalBuffer(true); buffer.setUpdate(true); });
+        return result;
     }
 
     /** Called once per frame before the level is drawn. */
@@ -205,6 +217,9 @@ public final class FogRenderer {
         if (main == null || main.getDepthAttachment() == null || main.getWidth() <= 0 || main.getHeight() <= 0) return;
 
         updateUniforms(state, deltaTracker, config);
+        boolean reduced = config.isVolumetricFog() && config.getFogResolution() < 100
+                && System.getProperty("broje.fogDebug", "").isEmpty();
+        if (reduced) ensureReducedTarget(main, config.getFogResolution());
         VulkanImage depth = main.getDepthAttachment();
         Framebuffer colorOnly = colorTargets.computeIfAbsent(main.getColorAttachment(), color -> Framebuffer.builder(color, null).build());
         if (fogPass == null) {
@@ -222,32 +237,19 @@ public final class FogRenderer {
                     VK10.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK10.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
                     VK10.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK10.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
                     VK10.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK10.VK_ACCESS_SHADER_READ_BIT);
-            renderer.beginRenderPass(fogPass, colorOnly);
-            Renderer.setViewport(0, 0, main.getWidth(), main.getHeight(), stack);
-            Renderer.setScissor(0, 0, main.getWidth(), main.getHeight());
-
             VulkanImage previousTexture = VTextureSelector.getImage(0);
-            RenderState saved = new RenderState();
             try {
                 VTextureSelector.bindTexture(0, depth);
-                VRenderSystem.depthTest = false;
-                VRenderSystem.depthMask = false;
-                VRenderSystem.cull = false;
-                VRenderSystem.topology = VK10.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-                VRenderSystem.polygonMode = VK10.VK_POLYGON_MODE_FILL;
-                VRenderSystem.logicOp = false;
-                VRenderSystem.colorMask = 15;
-                // Shader RGB is premultiplied in-scattering; alpha is 1 - transmittance.
-                PipelineState.blendInfo = new PipelineState.BlendInfo(true, VK10.VK_BLEND_FACTOR_ONE,
-                        VK10.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK10.VK_BLEND_FACTOR_ONE,
-                        VK10.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK10.VK_BLEND_OP_ADD);
-                renderer.bindGraphicsPipeline(pipeline);
-                renderer.uploadAndBindUBOs(pipeline);
-                VK10.vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+                if (reduced) {
+                    drawFog(reducedPipeline, reducedTarget, reducedPass, false, stack);
+                    VulkanImage fog = reducedTarget.getColorAttachment();
+                    VulkanImage.transitionLayout(stack, commandBuffer, fog, fog.getCurrentLayout(), VK10.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                            VK10.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK10.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                            VK10.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK10.VK_ACCESS_SHADER_READ_BIT);
+                }
+                drawFog(reduced ? resolvePipeline : pipeline, colorOnly, fogPass, true, stack);
             } finally {
-                saved.restore();
                 VTextureSelector.bindTexture(0, previousTexture);
-                renderer.endRenderPass();
                 VulkanImage.transitionLayout(stack, commandBuffer, depth, depth.getCurrentLayout(), VK10.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                         VK10.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK10.VK_ACCESS_SHADER_READ_BIT,
                         VK10.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK10.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
@@ -263,6 +265,48 @@ public final class FogRenderer {
                     config.getFogDensity(), config.isVolumetricFog(), VRenderSystem.projection);
             BrojeClient.LOGGER.info("Fog inverse: {} ; mapped m00={} m33={} depth format={}", inverseProjection,
                     uniforms.get("BrojeInverseProjection").getFloat(0), uniforms.get("BrojeInverseProjection").getFloat(60), depth.format);
+        }
+    }
+
+    private void ensureReducedTarget(Framebuffer main, int percent) {
+        int width = Math.max(1, (main.getWidth() * percent + 99) / 100);
+        int height = Math.max(1, (main.getHeight() * percent + 99) / 100);
+        if (reducedTarget != null && reducedTarget.getWidth() == width && reducedTarget.getHeight() == height) return;
+        if (reducedTarget != null) { Vulkan.waitIdle(); reducedTarget.cleanUp(); }
+        reducedTarget = Framebuffer.builder(width, height, 1, false).setFormat(VK10.VK_FORMAT_R16G16B16A16_SFLOAT).build();
+        if (reducedPass == null) {
+            RenderPass.Builder builder = RenderPass.builder(reducedTarget);
+            builder.getColorAttachmentInfo().setOps(VK10.VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK10.VK_ATTACHMENT_STORE_OP_STORE);
+            reducedPass = builder.build();
+        }
+    }
+
+    private void drawFog(GraphicsPipeline shader, Framebuffer target, RenderPass pass, boolean blend, MemoryStack stack) {
+        Renderer renderer = Renderer.getInstance();
+        RenderState saved = new RenderState();
+        vector("BrojeFogTarget", target.getWidth(), target.getHeight(), 0, 0);
+        try {
+            renderer.beginRenderPass(pass, target);
+            Renderer.setViewport(0, 0, target.getWidth(), target.getHeight(), stack);
+            Renderer.setScissor(0, 0, target.getWidth(), target.getHeight());
+            VRenderSystem.depthTest = false;
+            VRenderSystem.depthMask = false;
+            VRenderSystem.cull = false;
+            VRenderSystem.topology = VK10.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            VRenderSystem.polygonMode = VK10.VK_POLYGON_MODE_FILL;
+            VRenderSystem.logicOp = false;
+            VRenderSystem.colorMask = 15;
+            // The integration buffer stores scalars; only the final pass blends scattering.
+            PipelineState.blendInfo = blend ? new PipelineState.BlendInfo(true, VK10.VK_BLEND_FACTOR_ONE,
+                    VK10.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK10.VK_BLEND_FACTOR_ONE,
+                    VK10.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK10.VK_BLEND_OP_ADD)
+                    : new PipelineState.BlendInfo(false, 1, 0, 1, 0, 0);
+            renderer.bindGraphicsPipeline(shader);
+            renderer.uploadAndBindUBOs(shader);
+            VK10.vkCmdDraw(Renderer.getCommandBuffer(), 3, 1, 0, 0);
+        } finally {
+            renderer.endRenderPass();
+            saved.restore();
         }
     }
 
@@ -293,7 +337,7 @@ public final class FogRenderer {
                 debug.equals("solid") ? -2 : debug.equals("depth") ? -1 : daylight);
         // Light shafts: the same distorted sun map the terrain was shaded with this frame.
         MappedBuffer flags = ShadowRenderer.uniform("BrojeFlags");
-        boolean shafts = config.isLightShafts() && ShadowRenderer.mapReady() && config.isVolumetricFog();
+        boolean shafts = config.isLightShafts() && ShadowRenderer.mapReady() && config.isVolumetricFog() && daylight > 0;
         vector("BrojeShaft", shafts ? 1 : 0, 0.45f, flags != null ? flags.getFloat(8) : 0, snapshotReady ? 1 : 0);
         vector("BrojeShaftRange", config.getShadowDistance(), 0, 0, 0);
     }
@@ -318,13 +362,27 @@ public final class FogRenderer {
         if (instance == null) return;
         VK10.vkDeviceWaitIdle(Vulkan.getVkDevice());
         instance.pipeline.cleanUp();
+        instance.reducedPipeline.cleanUp();
+        instance.resolvePipeline.cleanUp();
         instance.copyPipeline.cleanUp();
-        instance.depthSampler.close();
-        instance.copySampler.close();
-        if (instance.opaqueTarget != null) instance.opaqueTarget.cleanUp();
+        instance.destroyTargets();
+        if (instance.fogPass != null) instance.fogPass.cleanUp();
+        if (instance.copyPass != null) instance.copyPass.cleanUp();
+        if (instance.reducedPass != null) instance.reducedPass.cleanUp();
         instance.uniforms.values().forEach(buffer -> MemoryUtil.memFree(buffer.buffer));
-        instance.colorTargets.clear();
+        MemoryUtil.memFree(instance.shadowIdentity.buffer);
         instance = null;
+    }
+
+    private void destroyTargets() {
+        Vulkan.waitIdle();
+        depthSampler.close();
+        copySampler.close();
+        colorTargets.values().forEach(target -> target.cleanUp(false));
+        colorTargets.clear();
+        if (opaqueTarget != null) { opaqueTarget.cleanUp(); opaqueTarget = null; }
+        if (reducedTarget != null) { reducedTarget.cleanUp(); reducedTarget = null; }
+        snapshotReady = false;
     }
 
     private record RenderState(boolean depthTest, boolean depthMask, boolean cull, int topology,

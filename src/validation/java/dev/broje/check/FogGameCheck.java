@@ -32,6 +32,7 @@ public final class FogGameCheck {
             var config = BrojeClient.CONFIG;
             config.setEnabled(true);
             config.setShadowsEnabled(false);
+            config.setWaterEnabled(false);
             config.setFogEnabled(false);
             config.setVolumetricFog(true);
             config.setFogDensity(80);
